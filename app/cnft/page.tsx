@@ -4,7 +4,8 @@ import {
     keypairIdentity,
     some,
     none,
-    percentAmount
+    percentAmount,
+    Signer
 } from '@metaplex-foundation/umi'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
 import bs58 from 'bs58'
@@ -15,6 +16,8 @@ import { mplTokenMetadata, createNft } from '@metaplex-foundation/mpl-token-meta
 
 import { createTreeV2, mintV2, getAssetWithProof, parseLeafFromMintV2Transaction } from '@metaplex-foundation/mpl-bubblegum'
 import { publicKey} from '@metaplex-foundation/umi'
+import { useState } from 'react'
+import { verifyCollectionV1 } from '@metaplex-foundation/mpl-token-metadata'
 const payer = web3.Keypair.fromSecretKey(
     bs58.decode(process.env.NEXT_PUBLIC_PAYER_KEYPAIR!)
   );
@@ -24,6 +27,8 @@ const umi = createUmi(connection).use(mplBubblegum()).use(mplTokenMetadata()).us
 
 
 export default function Cnft() {
+    const [merkleTree, setMerkleTree] = useState<Signer | null>(null);
+    const collectionMint = publicKey('CQJyvumRwdLDEg7CNxxoatTio11Jwpw7p3wuH6eBqToA');
 
     const _createNft = async () => {
         try {
@@ -38,9 +43,10 @@ export default function Cnft() {
             // }
 
             const nftMint = generateSigner(umi)
+            console.log(nftMint.publicKey)
             const create = await createNft(umi, {
                 mint: nftMint,
-                name: "test",
+                name: "test kyoto",
                 uri: "",
                 isCollection: true,
                 sellerFeeBasisPoints: percentAmount(5),
@@ -56,18 +62,64 @@ export default function Cnft() {
     }
 
     const createTree = async () => {
+        const newMerkleTree = generateSigner(umi);
+        console.log(newMerkleTree.publicKey)
+        setMerkleTree(newMerkleTree);
 
+        const tree = await createTreeV2(umi, {
+            merkleTree: newMerkleTree,
+            maxDepth: 14,
+            maxBufferSize: 64,
+            canopyDepth: 8,
+            treeCreator: umi.identity,
+            public: false,
+        });
+        const send = await tree.sendAndConfirm(umi)
+        console.log(send)
+        console.log("✅ Merkle Tree created:", send.signature.toString());
     }
 
     const mintNft = async () => {
+        if (!merkleTree) {
+            alert('Please create a merkle tree first');
+            return;
+        }
 
+        const tx1 = await mintV2(umi, {
+            merkleTree: merkleTree.publicKey,
+            leafOwner: publicKey(""),   // who will own the NFT
+            metadata: {
+              name: "Golden Ticket #1",
+              uri: "https://example.com/nft1.json",
+              sellerFeeBasisPoints: 500,         // 5% royalty (if using royalties)
+              creators: [],                      // e.g. no creators array in this case
+              collection: none(),                // no collection
+            },
+          }).sendAndConfirm(umi);
+        console.log(tx1)
+        const leaf1 = await parseLeafFromMintV2Transaction(umi, tx1.signature);
+        console.log("✅ Minted cNFT #1 with collection. Asset ID:", leaf1.id);
     }
 
     const checkTree = async () => {
 
     }
 
-
+    const verifyCollection = async () => {
+        try {
+            const verify = await verifyCollectionV1(umi, {
+                collectionMint: collectionMint,
+                authority: umi.identity,
+                metadata: publicKey("2boWwPuvo7vAB13DSKZb17NYNs5yvjKpuiPiEErP2G1t")
+            }).sendAndConfirm(umi);
+            console.log('Collection verified:', verify);
+        } catch (error: any) {
+            console.error('Error verifying collection:', error);
+            if (error.logs) {
+                console.error('Transaction logs:', error.logs);
+            }
+        }
+    };
 
     return (
         <div>
@@ -82,6 +134,9 @@ export default function Cnft() {
             </button>
             <button onClick={checkTree}>
                 Check 
+            </button>
+            <button onClick={verifyCollection}>
+                Verify Collection
             </button>
         </div>
     )
