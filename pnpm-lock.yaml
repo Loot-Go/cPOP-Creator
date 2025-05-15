@@ -14,9 +14,15 @@ dependencies:
   '@lightprotocol/stateless.js':
     specifier: ^0.21.0
     version: 0.21.0(@solana/web3.js@1.98.2)
+  '@metaplex-foundation/digital-asset-standard-api':
+    specifier: ^2.0.0
+    version: 2.0.0(@metaplex-foundation/umi@1.2.0)
   '@metaplex-foundation/mpl-bubblegum':
     specifier: ^5.0.1
     version: 5.0.1(@metaplex-foundation/umi@1.2.0)
+  '@metaplex-foundation/mpl-core':
+    specifier: ^1.4.0
+    version: 1.4.0(@metaplex-foundation/umi@1.2.0)(@noble/hashes@1.8.0)
   '@metaplex-foundation/mpl-token-metadata':
     specifier: ^3.4.0
     version: 3.4.0(@metaplex-foundation/umi@1.2.0)
@@ -1902,6 +1908,17 @@ packages:
       merkletreejs: 0.3.11
     dev: false
 
+  /@metaplex-foundation/mpl-core@1.4.0(@metaplex-foundation/umi@1.2.0)(@noble/hashes@1.8.0):
+    resolution: {integrity: sha512-XRvodR0KJokqcfw+wZjpar3lb6Rmf/8eAUpM4QFpSQTCanexdsrLd/Ol1zfPZ2VDYOgUh641LUHxcnGx0zvLUA==}
+    peerDependencies:
+      '@metaplex-foundation/umi': '>=0.8.2 <= 1.0'
+      '@noble/hashes': ^1.3.1
+    dependencies:
+      '@metaplex-foundation/umi': 1.2.0
+      '@msgpack/msgpack': 3.1.1
+      '@noble/hashes': 1.8.0
+    dev: false
+
   /@metaplex-foundation/mpl-token-metadata@3.2.1(@metaplex-foundation/umi@1.2.0):
     resolution: {integrity: sha512-26W1NhQwDWmLOg/pBRYut7x/vEs/5kFS2sWVEY5/X0f2jJOLhnd4NaZQcq+5u+XZsXvm1jq2AtrRGPNK43oqWQ==}
     peerDependencies:
@@ -2140,6 +2157,11 @@ packages:
   /@mobily/ts-belt@3.13.1:
     resolution: {integrity: sha512-K5KqIhPI/EoCTbA6CGbrenM9s41OouyK8A03fGJJcla/zKucsgLbz8HNbeseoLarRPgyWJsUyCYqFhI7t3Ra9Q==}
     engines: {node: '>= 10.*'}
+    dev: false
+
+  /@msgpack/msgpack@3.1.1:
+    resolution: {integrity: sha512-DnBpqkMOUGayNVKyTLlkM6ILmU/m/+VUxGkuQlPQVAcvreLz5jn1OlQnWd8uHKL/ZSiljpM12rjRhr51VtvJUQ==}
+    engines: {node: '>= 18'}
     dev: false
 
   /@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3:
