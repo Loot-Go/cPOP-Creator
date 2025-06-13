@@ -3,66 +3,63 @@ import {
     generateSigner,
     keypairIdentity,
     some,
-    none,
-    percentAmount,
     Signer,
     PublicKey,
-    publicKey
 } from '@metaplex-foundation/umi'
 import { createUmi } from '@metaplex-foundation/umi-bundle-defaults'
 import bs58 from 'bs58'
 import * as web3 from "@solana/web3.js"
 import { fromWeb3JsKeypair } from '@metaplex-foundation/umi-web3js-adapters'
-import { mintToCollectionV1, mplBubblegum } from '@metaplex-foundation/mpl-bubblegum'
-import { mplTokenMetadata, createNft } from '@metaplex-foundation/mpl-token-metadata'
-import { createTreeV2, mintV2, getAssetWithProof, parseLeafFromMintV2Transaction } from '@metaplex-foundation/mpl-bubblegum'
-import { dasApi } from '@metaplex-foundation/digital-asset-standard-api';
-
+import { mplBubblegum } from '@metaplex-foundation/mpl-bubblegum'
+import { mplTokenMetadata } from '@metaplex-foundation/mpl-token-metadata'
+import { createTreeV2, mintV2 } from '@metaplex-foundation/mpl-bubblegum'
+import { createCollection, mplCore, fetchCollection } from '@metaplex-foundation/mpl-core';
 import { useState } from 'react'
-import { verifyCollectionV1 } from '@metaplex-foundation/mpl-token-metadata'
 
 const payer = web3.Keypair.fromSecretKey(
     bs58.decode(process.env.NEXT_PUBLIC_PAYER_KEYPAIR!)
 );
 
 const connection = 'https://api.devnet.solana.com'
-const umi = createUmi(connection).use(mplBubblegum()).use(mplTokenMetadata()).use(keypairIdentity(fromWeb3JsKeypair(payer)))
+const umi = createUmi(connection).use(mplBubblegum()).use(mplTokenMetadata()).use(keypairIdentity(fromWeb3JsKeypair(payer))).use(mplCore());
 
 
 export default function Cnft() {
     const [merkleTree, setMerkleTree] = useState<Signer | null>(null);
-    const [collectionMint, setCollectionMint] = useState<PublicKey | null>(null);
     const [recipientAddress, setRecipientAddress] = useState<string>('');
+    const [collectionSigner, setCollectionSigner] = useState<Signer | null>(null);
 
 
-
-    // @jijin not required/doesn't work
-    const createCollection = async () => {
+    const _createCollection = async () => {
         try {
-            const nftMint = generateSigner(umi);
-            console.log('Collection NFT Mint Address:', nftMint.publicKey);
+            const _collectionSigner = generateSigner(umi);
+            setCollectionSigner(_collectionSigner)
+            console.log("collection signer: ", collectionSigner)
+            console.log("starting to create collection")
 
-            // Create the collection NFT with proper metadata
-            const create = await createNft(umi, {
-                mint: nftMint,
-                name: "Testing metaplex",
-                uri: "https://example.com/collection.json",
-                isCollection: true,
-                sellerFeeBasisPoints: percentAmount(5),
-            }).sendAndConfirm(umi);
+            const builder = createCollection(umi, {
+                collection: _collectionSigner,
+                name: 'test',
+                uri: 'https://example.com/my-nft.json',
+                plugins: [{ type: 'BubblegumV2' }],
+            });
 
-            console.log('Collection NFT created successfully:', create);
-            setCollectionMint(nftMint.publicKey);
+            console.log("built collection tx")
 
 
-        } catch (error: any) {
-            console.error('Error creating collection:', error);
-            if (error.logs) {
-                console.error('Transaction logs:', error.logs);
-            }
-            alert('Failed to create collection. Check console for details.');
+            const { signature } = await builder.sendAndConfirm(umi, {
+                confirm: { commitment: 'finalized' },
+            });
+
+            console.log(signature.toString());
+
+            const collection = await fetchCollection(umi, _collectionSigner.publicKey);
+            console.log('on-chain collection', collection);
+        } catch (error) {
+            console.error(error)
         }
-    }
+    };
+
 
 
     // @jijin only needed once for around 16k nfts -- can save this on db?
@@ -78,7 +75,7 @@ export default function Cnft() {
                 maxBufferSize: 64,
                 canopyDepth: 8,
             });
-            const send = await tree.sendAndConfirm(umi);
+            const send = await tree.sendAndConfirm(umi, { confirm: { commitment: 'finalized' }});
             console.log('Tree creation transaction:', send);
             console.log("✅ Merkle Tree created:", send.signature.toString());
 
@@ -96,50 +93,38 @@ export default function Cnft() {
 
 
     const mintNft = async () => {
-        if (!merkleTree) {
-            alert('Please create a merkle tree first');
-            return;
-        }
-
-
-        if (!recipientAddress) {
-            alert('Please enter a recipient address');
-            return;
-        }
-
         try {
-            // First check if the tree authority exists
-            const treeAuthority = await umi.rpc.getAccount(merkleTree.publicKey);
-            if (!treeAuthority.exists) {
-                alert('Tree authority not initialized. Please create the tree first.');
+            if (!merkleTree) {
+                alert('Please create a merkle tree first');
                 return;
             }
 
-            // Convert the recipient address string to a PublicKey
-            const recipientPubkey = publicKey(recipientAddress);
+            // First create the collection if it hasn't been created
+            if (!collectionSigner!.publicKey) {
+                alert('Please create a collection first');
+                return;
+            }
 
             console.log('Minting NFT with tree:', merkleTree.publicKey);
-            console.log('Minting to recipient:', recipientPubkey);
-
+            console.log('Using collection:', collectionSigner!.publicKey);
+            console.log(umi.identity.publicKey)
             const { signature } = await mintV2(umi, {
                 collectionAuthority: umi.identity,
-                leafOwner: recipientPubkey, // Use the recipient's address
+                leafOwner: umi.identity.publicKey,
                 merkleTree: merkleTree.publicKey,
-                // @jijin the metadata
+                treeCreatorOrDelegate: umi.identity,
+                coreCollection: collectionSigner!.publicKey,
                 metadata: {
                     name: 'My NFT',
                     uri: 'https://example.com/my-nft.json',
                     sellerFeeBasisPoints: 550, // 5.5%
-                    collection: none(),
+                    collection: some(collectionSigner!.publicKey),
                     creators: [],
                 },
-            }).sendAndConfirm(umi)
+            }).sendAndConfirm(umi);
 
-            const leaf = await parseLeafFromMintV2Transaction(umi, signature);
-            const assetId = leaf.id;
             console.log('Mint transaction:', signature);
-            console.log("✅ Minted cNFT #1. Asset ID:", assetId);
-            console.log("Recipient:", recipientAddress);
+            console.log("✅ Minted cNFT successfully");
         } catch (error: any) {
             console.error('Error minting NFT:', error);
             if (error.logs) {
@@ -152,9 +137,9 @@ export default function Cnft() {
 
     return (
         <div>
-            {/* <button onClick={createCollection}>
+            <button onClick={_createCollection}>
                 Create Collection
-            </button> */}
+            </button>
             <button onClick={createTree}>
                 Create Tree
             </button>
@@ -170,8 +155,98 @@ export default function Cnft() {
             <button onClick={mintNft}>
                 Mint NFT
             </button>
- 
+
 
         </div>
     )
 }
+
+
+
+
+
+// @jijin not required/doesn't work
+// const createCollection = async () => {
+//     try {
+//         const nftMint = generateSigner(umi);
+//         console.log('Collection NFT Mint Address:', nftMint.publicKey);
+
+//         // Create the collection NFT with proper metadata
+//         const create = await createNft(umi, {
+//             mint: nftMint,
+//             name: "Testing metaplex",
+//             uri: "https://example.com/collection.json",
+//             isCollection: true,
+//             sellerFeeBasisPoints: percentAmount(5),
+//         }).sendAndConfirm(umi);
+
+//         console.log('Collection NFT created successfully:', create);
+//         setCollectionMint(nftMint.publicKey);
+
+
+//     } catch (error: any) {
+//         console.error('Error creating collection:', error);
+//         if (error.logs) {
+//             console.error('Transaction logs:', error.logs);
+//         }
+//         alert('Failed to create collection. Check console for details.');
+//     }
+// }
+
+
+
+
+
+// const mintNft = async () => {
+//     if (!merkleTree) {
+//         alert('Please create a merkle tree first');
+//         return;
+//     }
+
+
+//     if (!recipientAddress) {
+//         alert('Please enter a recipient address');
+//         return;
+//     }
+
+//     try {
+//         // First check if the tree authority exists
+//         const treeAuthority = await umi.rpc.getAccount(merkleTree.publicKey);
+//         if (!treeAuthority.exists) {
+//             alert('Tree authority not initialized. Please create the tree first.');
+//             return;
+//         }
+
+//         // Convert the recipient address string to a PublicKey
+//         const recipientPubkey = publicKey(recipientAddress);
+
+//         console.log('Minting NFT with tree:', merkleTree.publicKey);
+//         console.log('Minting to recipient:', recipientPubkey);
+
+//         const { signature } = await mintV2(umi, {
+//             collectionAuthority: umi.identity,
+//             leafOwner: recipientPubkey, // Use the recipient's address
+//             merkleTree: merkleTree.publicKey,
+//             // @jijin the metadata
+//             metadata: {
+//                 name: 'My NFT',
+//                 uri: 'https://example.com/my-nft.json',
+//                 sellerFeeBasisPoints: 550, // 5.5%
+//                 collection: none(),
+//                 creators: [],
+//             },
+//         }).sendAndConfirm(umi)
+
+//         const leaf = await parseLeafFromMintV2Transaction(umi, signature);
+//         const assetId = leaf.id;
+//         console.log('Mint transaction:', signature);
+//         console.log("✅ Minted cNFT #1. Asset ID:", assetId);
+//         console.log("Recipient:", recipientAddress);
+//     } catch (error: any) {
+//         console.error('Error minting NFT:', error);
+//         if (error.logs) {
+//             console.error('Transaction logs:', error.logs);
+//         }
+//         alert('Failed to mint NFT. Check console for details.');
+//     }
+// }
