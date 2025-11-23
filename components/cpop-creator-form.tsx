@@ -6,7 +6,6 @@ import { format } from "date-fns";
 import { CalendarIcon, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
-import { QRCode } from "react-qrcode-logo";
 import { z } from "zod";
 
 import createToken from "@/app/actions";
@@ -34,6 +33,8 @@ import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
+import LocationAutocomplete from "@/components/location-autocomplete";
+import MintSuccess from "@/components/mint-success";
 
 const formSchema = z
   .object({
@@ -80,14 +81,19 @@ const formSchema = z
 
 export default function CPOPCreatorForm() {
   const { connected, publicKey, wallet, connecting } = useWallet();
-  const [txLogs, setTxLogs] = useState<
-    {
-      type: string;
-      txId: string;
-      tx: string;
-    }[]
-  >([]);
   const [cpop, setCpop] = useState<string | null>(null);
+  const [transactionUrl, setTransactionUrl] = useState<string | null>(null);
+  const [successEventDetails, setSuccessEventDetails] = useState<{
+    eventName: string;
+    organizerName: string;
+    description: string;
+    website: string;
+    location: string;
+    startDate: Date;
+    endDate: Date;
+    amount: number;
+    imageUrl?: string;
+  } | null>(null);
   const { connection } = useConnection();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -111,11 +117,25 @@ export default function CPOPCreatorForm() {
       website: "",
       amount: 100,
       location: "",
+      latitude: "",
+      longitude: "",
     },
   });
 
+  // Log form errors for debugging
+  useEffect(() => {
+    const subscription = form.watch(() => {
+      if (Object.keys(form.formState.errors).length > 0) {
+        console.log("Form validation errors:", form.formState.errors);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log("Form submission - Wallet state:", {
+    console.log("=== FORM SUBMITTED SUCCESSFULLY ===");
+    console.log("Form values:", values);
+    console.log("Wallet state:", {
       connected,
       connecting,
       publicKey: publicKey?.toString(),
@@ -162,6 +182,7 @@ export default function CPOPCreatorForm() {
 
     try {
       setIsSubmitting(true);
+      console.log("=== CALLING createToken ===");
 
       const { logs, cpop, error, message } = await createToken({
         name: values.eventName,
@@ -187,7 +208,10 @@ export default function CPOPCreatorForm() {
         creator_address: publicKey.toString(),
       });
 
+      console.log("=== createToken RESPONSE ===", { logs, cpop, error, message });
+
       if (error) {
+        console.log("createToken returned error:", message);
         toast({
           title: "Error",
           description: message as string,
@@ -196,8 +220,28 @@ export default function CPOPCreatorForm() {
         return;
       } else {
         if (logs) {
-          setTxLogs(logs);
           setCpop(cpop.id);
+
+          // Find the last transaction (compress tokens) for the main transaction link
+          const compressTx = logs.find((log: { type: string }) => log.type === "Compress Tokens");
+          if (compressTx) {
+            setTransactionUrl(compressTx.tx);
+          } else if (logs.length > 0) {
+            setTransactionUrl(logs[logs.length - 1].tx);
+          }
+
+          // Store event details for success page
+          setSuccessEventDetails({
+            eventName: values.eventName,
+            organizerName: values.organizerName,
+            description: values.description,
+            website: values.website,
+            location: values.location,
+            startDate: values.startDate,
+            endDate: values.endDate,
+            amount: values.amount,
+            imageUrl: values.imageUrl,
+          });
 
           toast({
             title: "cPOP created!",
@@ -223,6 +267,22 @@ export default function CPOPCreatorForm() {
     }
   }
 
+  // Show success page if cpop was created
+  if (cpop && successEventDetails) {
+    return (
+      <MintSuccess
+        cpopId={cpop}
+        eventDetails={successEventDetails}
+        transactionUrl={transactionUrl || undefined}
+        onCreateAnother={() => {
+          setCpop(null);
+          setTransactionUrl(null);
+          setSuccessEventDetails(null);
+        }}
+      />
+    );
+  }
+
   return (
     <div>
       <Card>
@@ -241,7 +301,18 @@ export default function CPOPCreatorForm() {
           </div>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
+              console.log("Form validation failed:", errors);
+              // Show toast for validation errors
+              const errorMessages = Object.entries(errors)
+                .map(([field, error]) => `${field}: ${error?.message}`)
+                .join(", ");
+              toast({
+                title: "Validation Error",
+                description: errorMessages || "Please fill all required fields",
+                variant: "destructive",
+              });
+            })} className="space-y-6">
               <div className="grid grid-cols-3 gap-6">
                 <div className="grid place-items-center">
                   <div>
@@ -421,72 +492,58 @@ export default function CPOPCreatorForm() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount of cPOP</FormLabel>
-                      <FormControl>
-                        <Input type="number" min={1} {...field} />
-                      </FormControl>
-                      <FormDescription>
-                        Number of tokens to create
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <FormField
+                control={form.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Amount of cPOP</FormLabel>
+                    <FormControl>
+                      <Input type="number" min={1} {...field} />
+                    </FormControl>
+                    <FormDescription>
+                      Number of tokens to create
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="location"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Location</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="Virtual or physical location"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              {/* Location Autocomplete with Map */}
+              <FormField
+                control={form.control}
+                name="location"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Location</FormLabel>
+                    <FormControl>
+                      <LocationAutocomplete
+                        defaultValue={field.value}
+                        onLocationSelect={(location) => {
+                          form.setValue("location", location.address);
+                          form.setValue("latitude", location.lat.toString());
+                          form.setValue("longitude", location.lng.toString());
+                        }}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Search for a location to auto-fill coordinates
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="latitude"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Latitude</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
+              {/* Hidden fields for lat/lng - still validated but auto-filled */}
+              <input type="hidden" {...form.register("latitude")} />
+              <input type="hidden" {...form.register("longitude")} />
 
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="longitude"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Longitude</FormLabel>
-                      <FormControl>
-                        <Input {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              {/* Show error if location not selected from autocomplete */}
+              {(form.formState.errors.latitude || form.formState.errors.longitude) && (
+                <p className="text-sm font-medium text-destructive">
+                  Please select a location from the dropdown to set coordinates
+                </p>
+              )}
 
               <Button
                 type="submit"
@@ -507,76 +564,6 @@ export default function CPOPCreatorForm() {
         </CardContent>
       </Card>
 
-      {txLogs.length > 1 ? (
-        <div className="mt-4 dark:bg-[#111] p-4 rounded-md border border-gray-200 dark:border-gray-700 mb-5">
-          {txLogs.map((logs) => {
-            return (
-              <p key={logs.txId}>
-                <span className="text-gray-400 mr-2">{logs.type}</span>
-                <a
-                  href={logs.tx}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs"
-                >
-                  View on Solana Explorer
-                </a>
-              </p>
-            );
-          })}
-        </div>
-      ) : null}
-
-      {cpop ? (
-        <div className="mt-4 dark:bg-[#111] p-4 rounded-md border border-gray-200 dark:border-gray-700 mb-5 grid place-items-center space-y-4">
-          <p>QR Code for your cPOP</p>
-          <QRCode value={`${cpop}`} qrStyle="fluid" />
-
-          <Button
-            onClick={async () => {
-              try {
-                const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-                  cpop
-                )}`;
-
-                // Fetch the QR code image
-                const response = await fetch(qrCodeUrl);
-                const blob = await response.blob();
-
-                // Create a download link
-                const url = window.URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = "cpop-qr.png";
-
-                // Trigger download
-                document.body.appendChild(link);
-                link.click();
-
-                // Cleanup
-                document.body.removeChild(link);
-                window.URL.revokeObjectURL(url);
-
-                toast({
-                  title: "Success",
-                  description: "QR code downloaded successfully",
-                });
-              } catch (error) {
-                console.error("Error downloading QR code:", error);
-                toast({
-                  title: "Error",
-                  description: "Failed to download QR code",
-                  variant: "destructive",
-                });
-              }
-            }}
-          >
-            Download QR Code
-          </Button>
-        </div>
-      ) : null}
-
-      {/* <Button onClick={getBalance}>Get Balance</Button> */}
     </div>
   );
 }
