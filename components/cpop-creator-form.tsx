@@ -35,6 +35,7 @@ import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
+import CpopList from "@/components/cpop-list";
 
 const formSchema = z
   .object({
@@ -564,6 +565,12 @@ export default function CPOPCreatorForm() {
         </CardContent>
       </Card>
 
+      {/* Show list of created cPOPs when wallet is connected */}
+      {connected && publicKey && (
+        <div className="mt-8">
+          <CpopList creatorAddress={publicKey.toString()} />
+        </div>
+      )}
     </div>
   );
 }

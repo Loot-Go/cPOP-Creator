@@ -1,6 +1,47 @@
 # Changelog
 
-## [Unreleased] - 2024-11-22
+## [Unreleased] - 2024-11-23
+
+### Bug Fixes
+
+#### QR Code Now Links to Claim Page
+
+Fixed the QR code on the success page to link to the correct claim page URL.
+
+**What changed:**
+- QR code now encodes the full claim URL (e.g., `https://yoursite.com/claim/{cpop-id}`)
+- Added claim link display below the QR code with copy button
+- Added "Open Claim Page" button for quick access
+
+**Files modified:**
+- `components/mint-success.tsx` - Updated QR code to use full claim URL, added claim link display
+
+---
+
+### New Features
+
+#### cPOP List on Creator Page
+
+Added a list of created cPOPs on the main creator page so organizers can easily manage and share their events.
+
+**Features:**
+- Shows all cPOPs created by the connected wallet
+- Displays event name, date, location, and claim count
+- QR code dialog for each event
+- Copy claim link button
+- Open claim page button
+- Auto-refresh capability
+
+**Files added:**
+- `components/cpop-list.tsx` - New component displaying list of created events
+- `app/api/cpops/route.ts` - API endpoint to fetch cPOPs by creator address
+
+**Files modified:**
+- `components/cpop-creator-form.tsx` - Integrated CpopList component below the form
+
+---
+
+## [Previous] - 2024-11-22
 
 ### New Features
 

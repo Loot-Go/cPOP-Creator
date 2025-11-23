@@ -1,11 +1,12 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { QRCode } from "react-qrcode-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/use-toast";
 import { format } from "date-fns";
-import { CalendarIcon, MapPinIcon, ExternalLinkIcon, ArrowLeftIcon, DownloadIcon, GlobeIcon, UserIcon } from "lucide-react";
+import { CalendarIcon, MapPinIcon, ExternalLinkIcon, ArrowLeftIcon, DownloadIcon, GlobeIcon, UserIcon, Copy, LinkIcon } from "lucide-react";
 
 interface MintSuccessProps {
   cpopId: string;
@@ -30,10 +31,17 @@ export default function MintSuccess({
   transactionUrl,
   onCreateAnother,
 }: MintSuccessProps) {
+  const [claimUrl, setClaimUrl] = useState("");
+
+  // Set claim URL on client side to avoid hydration mismatch
+  useEffect(() => {
+    setClaimUrl(`${window.location.origin}/claim/${cpopId}`);
+  }, [cpopId]);
+
   const handleDownloadQR = async () => {
     try {
       const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(
-        cpopId
+        claimUrl
       )}`;
 
       const response = await fetch(qrCodeUrl);
@@ -102,18 +110,58 @@ export default function MintSuccess({
           </CardHeader>
           <CardContent className="flex flex-col items-center space-y-4">
             <div className="p-4 bg-white rounded-lg">
-              <QRCode
-                value={cpopId}
-                qrStyle="fluid"
-                size={200}
-                bgColor="#FFFFFF"
-                fgColor="#000000"
-              />
+              {claimUrl ? (
+                <QRCode
+                  value={claimUrl}
+                  qrStyle="fluid"
+                  size={200}
+                  bgColor="#FFFFFF"
+                  fgColor="#000000"
+                />
+              ) : (
+                <div className="w-[200px] h-[200px] bg-gray-100 animate-pulse rounded" />
+              )}
             </div>
-            <Button onClick={handleDownloadQR} variant="outline" className="gap-2">
-              <DownloadIcon className="w-4 h-4" />
-              Download QR Code
-            </Button>
+
+            {/* Claim URL Display */}
+            {claimUrl && (
+              <div className="w-full p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">Claim Link:</p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs flex-1 truncate text-gray-700 dark:text-gray-300">
+                    {claimUrl}
+                  </code>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(claimUrl);
+                      toast({
+                        title: "Copied!",
+                        description: "Claim link copied to clipboard",
+                      });
+                    }}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button onClick={handleDownloadQR} variant="outline" className="gap-2">
+                <DownloadIcon className="w-4 h-4" />
+                Download QR
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => window.open(claimUrl, "_blank")}
+              >
+                <LinkIcon className="w-4 h-4" />
+                Open Claim Page
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
