@@ -15,6 +15,7 @@ import {
   XCircle,
   Navigation,
   AlertCircle,
+  Clock,
 } from "lucide-react";
 
 interface CpopDetails {
@@ -80,6 +81,15 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [claimTxId, setClaimTxId] = useState<string | null>(null);
+
+  // Time validation
+  const now = new Date();
+  const startDate = cpop ? new Date(cpop.startDate) : null;
+  const endDate = cpop ? new Date(cpop.endDate) : null;
+
+  const isBeforeStart = startDate ? now < startDate : false;
+  const isAfterEnd = endDate ? now > endDate : false;
+  const isWithinTimeWindow = !isBeforeStart && !isAfterEnd;
 
   // Fetch CPOP details
   useEffect(() => {
@@ -283,8 +293,8 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
               <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                 <CalendarIcon className="w-4 h-4" />
                 <span>
-                  {format(new Date(cpop.startDate), "MMM d, yyyy")} -{" "}
-                  {format(new Date(cpop.endDate), "MMM d, yyyy")}
+                  {format(new Date(cpop.startDate), "MMM d, yyyy 'at' h:mm a")} -{" "}
+                  {format(new Date(cpop.endDate), "MMM d, yyyy 'at' h:mm a")}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
@@ -292,6 +302,36 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                 <span>{cpop.location}</span>
               </div>
             </div>
+
+            {/* Time window status */}
+            {!isWithinTimeWindow && (
+              <div
+                className={`p-3 rounded-lg flex items-center gap-2 ${
+                  isBeforeStart
+                    ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+                    : "bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                }`}
+              >
+                <Clock className={`w-5 h-5 ${isBeforeStart ? "text-blue-500" : "text-gray-500"}`} />
+                <div>
+                  {isBeforeStart ? (
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      Claiming opens on{" "}
+                      <span className="font-medium">
+                        {format(new Date(cpop.startDate), "MMM d, yyyy 'at' h:mm a")}
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      This event has ended. Claiming closed on{" "}
+                      <span className="font-medium">
+                        {format(new Date(cpop.endDate), "MMM d, yyyy 'at' h:mm a")}
+                      </span>
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -400,7 +440,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
           <CardContent>
             <Button
               onClick={handleClaim}
-              disabled={!connected || !isWithinRange || claiming}
+              disabled={!connected || !isWithinRange || claiming || !isWithinTimeWindow}
               className="w-full"
               size="lg"
             >
@@ -409,19 +449,31 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Claiming...
                 </>
+              ) : isBeforeStart ? (
+                <>
+                  <Clock className="w-4 h-4 mr-2" />
+                  Claiming opens {format(new Date(cpop.startDate), "MMM d 'at' h:mm a")}
+                </>
+              ) : isAfterEnd ? (
+                "Claiming period has ended"
               ) : (
                 "Claim cPOP Token"
               )}
             </Button>
 
-            {!connected && (
+            {!connected && isWithinTimeWindow && (
               <p className="text-sm text-gray-500 text-center mt-2">
                 Connect your wallet to claim
               </p>
             )}
-            {connected && !isWithinRange && userLocation && (
+            {connected && !isWithinRange && userLocation && isWithinTimeWindow && (
               <p className="text-sm text-red-500 text-center mt-2">
                 Move closer to the event location to claim
+              </p>
+            )}
+            {isAfterEnd && (
+              <p className="text-sm text-gray-500 text-center mt-2">
+                This event&apos;s claiming period is over
               </p>
             )}
           </CardContent>

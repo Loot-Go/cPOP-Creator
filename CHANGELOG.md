@@ -1,6 +1,42 @@
 # Changelog
 
-## [Unreleased] - 2024-11-23
+## [Unreleased] - 2024-11-24
+
+### New Features
+
+#### Date & Time Picker for Events
+
+Enhanced the event date selection to include time, allowing organizers to set precise start and end times for their events.
+
+**What changed:**
+- Start and end date fields now include a time picker alongside the calendar
+- Time is displayed in 24-hour format in the picker
+- Dates are stored with full timestamp precision
+
+**Files modified:**
+- `components/cpop-creator-form.tsx` - Added time input alongside date picker for both start and end dates
+
+---
+
+#### Time-Based Claiming Restrictions
+
+Added validation on the claim page to restrict claiming based on the event's time window.
+
+**What changed:**
+- Users cannot claim tokens before the event start time
+- Users cannot claim tokens after the event end time
+- Clear messaging shows when claiming will open or that it has ended
+- Claim button is disabled outside the valid time window with appropriate labels
+
+**UI States:**
+- **Before start**: Button shows "Claiming opens [date] at [time]"
+- **After end**: Button shows "Claiming period has ended"
+- **During event**: Normal claim flow
+
+**Files modified:**
+- `app/claim/[id]/claim-page-client.tsx` - Added time validation logic and updated button states
+
+---
 
 ### Bug Fixes
 
