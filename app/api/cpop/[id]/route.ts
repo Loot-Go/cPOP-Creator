@@ -7,6 +7,8 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    const searchParams = request.nextUrl.searchParams;
+    const wallet_address = searchParams.get("wallet_address");
 
     const cpop = await prisma.cpop.findUnique({
       where: { id },
@@ -28,13 +30,27 @@ export async function GET(
     });
 
     if (!cpop) {
-      return NextResponse.json(
-        { error: "Event not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Event not found" }, { status: 404 });
     }
 
-    return NextResponse.json(cpop);
+    let claimed = false;
+    if (wallet_address) {
+      const existingClaim = await prisma.cpopClaim.findFirst({
+        where: {
+          cpopId: cpop.id,
+          walletAddress: wallet_address,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (existingClaim) {
+        claimed = true;
+      }
+    }
+
+    return NextResponse.json({ ...cpop, claimed });
   } catch (error) {
     console.error("Error fetching CPOP:", error);
     return NextResponse.json(

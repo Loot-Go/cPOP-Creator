@@ -222,9 +222,11 @@ export default function CpopList({ creatorAddress }: CpopListProps) {
                         <QrCode className="w-4 h-4" />
                       </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[340px] overflow-hidden">
+                    <DialogContent className="max-w-[340px] overflow-hidden flex flex-col items-center">
                       <DialogHeader>
-                        <DialogTitle className="text-center">{cpop.eventName}</DialogTitle>
+                        <DialogTitle className="text-center">
+                          {cpop.eventName}
+                        </DialogTitle>
                       </DialogHeader>
 
                       <div className="flex flex-col items-center gap-4">
@@ -242,7 +244,9 @@ export default function CpopList({ creatorAddress }: CpopListProps) {
                         {/* Download Button */}
                         <Button
                           variant="outline"
-                          onClick={() => handleDownloadQR(cpop.id, cpop.eventName)}
+                          onClick={() =>
+                            handleDownloadQR(cpop.id, cpop.eventName)
+                          }
                           className="gap-2"
                         >
                           <Download className="w-4 h-4" />
@@ -250,7 +254,7 @@ export default function CpopList({ creatorAddress }: CpopListProps) {
                         </Button>
 
                         {/* Claim Link */}
-                        <div className="w-full p-3 bg-muted rounded-md">
+                        <div className="max-w-[300px] p-3 bg-muted rounded-md">
                           <p className="text-xs text-muted-foreground mb-1">
                             Claim Link:
                           </p>
@@ -285,9 +289,7 @@ export default function CpopList({ creatorAddress }: CpopListProps) {
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() =>
-                      window.open(getClaimUrl(cpop.id), "_blank")
-                    }
+                    onClick={() => window.open(getClaimUrl(cpop.id), "_blank")}
                   >
                     <ExternalLink className="w-4 h-4" />
                   </Button>

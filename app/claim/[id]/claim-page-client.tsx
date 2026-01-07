@@ -80,6 +80,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
   // Claim state
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
+  const [defaultClaim, setDefaultClaim] = useState(false);
   const [claimTxId, setClaimTxId] = useState<string | null>(null);
 
   // Time validation
@@ -95,12 +96,15 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
   useEffect(() => {
     async function fetchCpop() {
       try {
-        const response = await fetch(`/api/cpop/${cpopId}`);
+        const response = await fetch(
+          `/api/cpop/${cpopId}?wallet_address=${publicKey?.toString() || ""}`
+        );
         if (!response.ok) {
           throw new Error("Failed to fetch event details");
         }
         const data = await response.json();
         setCpop(data);
+        setDefaultClaim(data.claimed);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load event");
       } finally {
@@ -109,7 +113,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
     }
 
     fetchCpop();
-  }, [cpopId]);
+  }, [cpopId, publicKey]);
 
   // Check user's location
   const checkLocation = () => {
@@ -129,12 +133,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
         setUserLocation({ lat: userLat, lng: userLng });
 
         if (cpop) {
-          const dist = calculateDistance(
-            userLat,
-            userLng,
-            cpop.lat,
-            cpop.long
-          );
+          const dist = calculateDistance(userLat, userLng, cpop.lat, cpop.long);
           setDistance(dist);
           setIsWithinRange(dist <= CLAIM_RADIUS_METERS);
         }
@@ -145,7 +144,8 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
         let errorMessage = "Unable to get your location";
         switch (err.code) {
           case err.PERMISSION_DENIED:
-            errorMessage = "Location permission denied. Please enable location access.";
+            errorMessage =
+              "Location permission denied. Please enable location access.";
             break;
           case err.POSITION_UNAVAILABLE:
             errorMessage = "Location information unavailable";
@@ -211,7 +211,8 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
     } catch (err) {
       toast({
         title: "Error",
-        description: err instanceof Error ? err.message : "Failed to claim token",
+        description:
+          err instanceof Error ? err.message : "Failed to claim token",
         variant: "destructive",
       });
     } finally {
@@ -234,7 +235,9 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
           <CardContent className="pt-6 text-center">
             <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
             <h2 className="text-xl font-semibold mb-2">Event Not Found</h2>
-            <p className="text-gray-500">{error || "This event does not exist"}</p>
+            <p className="text-gray-500">
+              {error || "This event does not exist"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -293,8 +296,8 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
               <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
                 <CalendarIcon className="w-4 h-4" />
                 <span>
-                  {format(new Date(cpop.startDate), "MMM d, yyyy 'at' h:mm a")} -{" "}
-                  {format(new Date(cpop.endDate), "MMM d, yyyy 'at' h:mm a")}
+                  {format(new Date(cpop.startDate), "MMM d, yyyy 'at' h:mm a")}{" "}
+                  - {format(new Date(cpop.endDate), "MMM d, yyyy 'at' h:mm a")}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-gray-600 dark:text-gray-400">
@@ -312,20 +315,30 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                     : "bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
                 }`}
               >
-                <Clock className={`w-5 h-5 ${isBeforeStart ? "text-blue-500" : "text-gray-500"}`} />
+                <Clock
+                  className={`w-5 h-5 ${
+                    isBeforeStart ? "text-blue-500" : "text-gray-500"
+                  }`}
+                />
                 <div>
                   {isBeforeStart ? (
                     <p className="text-sm text-blue-700 dark:text-blue-400">
                       Claiming opens on{" "}
                       <span className="font-medium">
-                        {format(new Date(cpop.startDate), "MMM d, yyyy 'at' h:mm a")}
+                        {format(
+                          new Date(cpop.startDate),
+                          "MMM d, yyyy 'at' h:mm a"
+                        )}
                       </span>
                     </p>
                   ) : (
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                       This event has ended. Claiming closed on{" "}
                       <span className="font-medium">
-                        {format(new Date(cpop.endDate), "MMM d, yyyy 'at' h:mm a")}
+                        {format(
+                          new Date(cpop.endDate),
+                          "MMM d, yyyy 'at' h:mm a"
+                        )}
                       </span>
                     </p>
                   )}
@@ -343,9 +356,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
           <CardContent>
             <div className="flex items-center justify-between">
               <WalletMultiButton />
-              {connected && (
-                <CheckCircle2 className="w-6 h-6 text-green-500" />
-              )}
+              {connected && <CheckCircle2 className="w-6 h-6 text-green-500" />}
             </div>
           </CardContent>
         </Card>
@@ -396,14 +407,20 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                     <div>
                       <p
                         className={`font-medium ${
-                          isWithinRange ? "text-green-700 dark:text-green-400" : "text-red-700 dark:text-red-400"
+                          isWithinRange
+                            ? "text-green-700 dark:text-green-400"
+                            : "text-red-700 dark:text-red-400"
                         }`}
                       >
-                        {isWithinRange ? "You're at the location!" : "Too far away"}
+                        {isWithinRange
+                          ? "You're at the location!"
+                          : "Too far away"}
                       </p>
                       <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Distance: {distance ? `${Math.round(distance)}m` : "Unknown"}
-                        {!isWithinRange && ` (need to be within ${CLAIM_RADIUS_METERS}m)`}
+                        Distance:{" "}
+                        {distance ? `${Math.round(distance)}m` : "Unknown"}
+                        {!isWithinRange &&
+                          ` (need to be within ${CLAIM_RADIUS_METERS}m)`}
                       </p>
                     </div>
                   </div>
@@ -440,11 +457,19 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
           <CardContent>
             <Button
               onClick={handleClaim}
-              disabled={!connected || !isWithinRange || claiming || !isWithinTimeWindow}
+              disabled={
+                !connected ||
+                !isWithinRange ||
+                claiming ||
+                !isWithinTimeWindow ||
+                defaultClaim
+              }
               className="w-full"
               size="lg"
             >
-              {claiming ? (
+              {defaultClaim ? (
+                "Claimed"
+              ) : claiming ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   Claiming...
@@ -452,7 +477,8 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
               ) : isBeforeStart ? (
                 <>
                   <Clock className="w-4 h-4 mr-2" />
-                  Claiming opens {format(new Date(cpop.startDate), "MMM d 'at' h:mm a")}
+                  Claiming opens{" "}
+                  {format(new Date(cpop.startDate), "MMM d 'at' h:mm a")}
                 </>
               ) : isAfterEnd ? (
                 "Claiming period has ended"
@@ -466,12 +492,15 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                 Connect your wallet to claim
               </p>
             )}
-            {connected && !isWithinRange && userLocation && isWithinTimeWindow && (
-              <p className="text-sm text-red-500 text-center mt-2">
-                Move closer to the event location to claim
-              </p>
-            )}
-            {isAfterEnd && (
+            {connected &&
+              !isWithinRange &&
+              userLocation &&
+              isWithinTimeWindow && (
+                <p className="text-sm text-red-500 text-center mt-2">
+                  Move closer to the event location to claim
+                </p>
+              )}
+            {isAfterEnd && !defaultClaim && (
               <p className="text-sm text-gray-500 text-center mt-2">
                 This event&apos;s claiming period is over
               </p>
