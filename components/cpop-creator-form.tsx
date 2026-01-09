@@ -8,7 +8,6 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import createToken from "@/app/actions";
 import { WalletMultiButton } from "@/components/solana/wallet-multi-button";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -36,6 +35,7 @@ import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
 import CpopList from "@/components/cpop-list";
+import createToken from "@/lib/cpop-mint";
 
 const formSchema = z
   .object({
@@ -81,7 +81,9 @@ const formSchema = z
   });
 
 export default function CPOPCreatorForm() {
-  const { connected, publicKey, wallet, connecting } = useWallet();
+  const { connected, publicKey, wallet, connecting, sendTransaction } =
+    useWallet();
+  const walletMeta = useWallet();
   const [cpop, setCpop] = useState<string | null>(null);
   const [transactionUrl, setTransactionUrl] = useState<string | null>(null);
   const [successEventDetails, setSuccessEventDetails] = useState<{
@@ -207,9 +209,17 @@ export default function CPOPCreatorForm() {
         latitude: parseFloat(values.latitude),
         longitude: parseFloat(values.longitude),
         creator_address: publicKey.toString(),
+        wallet: walletMeta,
+        sendTransaction,
+        connection,
       });
 
-      console.log("=== createToken RESPONSE ===", { logs, cpop, error, message });
+      console.log("=== createToken RESPONSE ===", {
+        logs,
+        cpop,
+        error,
+        message,
+      });
 
       if (error) {
         console.log("createToken returned error:", message);
@@ -224,7 +234,9 @@ export default function CPOPCreatorForm() {
           setCpop(cpop.id);
 
           // Find the last transaction (compress tokens) for the main transaction link
-          const compressTx = logs.find((log: { type: string }) => log.type === "Compress Tokens");
+          const compressTx = logs.find(
+            (log: { type: string }) => log.type === "Compress Tokens"
+          );
           if (compressTx) {
             setTransactionUrl(compressTx.tx);
           } else if (logs.length > 0) {
@@ -302,18 +314,22 @@ export default function CPOPCreatorForm() {
           </div>
 
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit, (errors) => {
-              console.log("Form validation failed:", errors);
-              // Show toast for validation errors
-              const errorMessages = Object.entries(errors)
-                .map(([field, error]) => `${field}: ${error?.message}`)
-                .join(", ");
-              toast({
-                title: "Validation Error",
-                description: errorMessages || "Please fill all required fields",
-                variant: "destructive",
-              });
-            })} className="space-y-6">
+            <form
+              onSubmit={form.handleSubmit(onSubmit, (errors) => {
+                console.log("Form validation failed:", errors);
+                // Show toast for validation errors
+                const errorMessages = Object.entries(errors)
+                  .map(([field, error]) => `${field}: ${error?.message}`)
+                  .join(", ");
+                toast({
+                  title: "Validation Error",
+                  description:
+                    errorMessages || "Please fill all required fields",
+                  variant: "destructive",
+                });
+              })}
+              className="space-y-6"
+            >
               <div className="grid grid-cols-3 gap-6">
                 <div className="grid place-items-center">
                   <div>
@@ -459,10 +475,16 @@ export default function CPOPCreatorForm() {
                         <Input
                           type="time"
                           className="w-[120px]"
-                          value={field.value ? format(field.value, "HH:mm") : ""}
+                          value={
+                            field.value ? format(field.value, "HH:mm") : ""
+                          }
                           onChange={(e) => {
-                            const [hours, minutes] = e.target.value.split(":").map(Number);
-                            const newDate = field.value ? new Date(field.value) : new Date();
+                            const [hours, minutes] = e.target.value
+                              .split(":")
+                              .map(Number);
+                            const newDate = field.value
+                              ? new Date(field.value)
+                              : new Date();
                             newDate.setHours(hours || 0);
                             newDate.setMinutes(minutes || 0);
                             field.onChange(newDate);
@@ -519,10 +541,16 @@ export default function CPOPCreatorForm() {
                         <Input
                           type="time"
                           className="w-[120px]"
-                          value={field.value ? format(field.value, "HH:mm") : ""}
+                          value={
+                            field.value ? format(field.value, "HH:mm") : ""
+                          }
                           onChange={(e) => {
-                            const [hours, minutes] = e.target.value.split(":").map(Number);
-                            const newDate = field.value ? new Date(field.value) : new Date();
+                            const [hours, minutes] = e.target.value
+                              .split(":")
+                              .map(Number);
+                            const newDate = field.value
+                              ? new Date(field.value)
+                              : new Date();
                             newDate.setHours(hours || 0);
                             newDate.setMinutes(minutes || 0);
                             field.onChange(newDate);
@@ -582,7 +610,8 @@ export default function CPOPCreatorForm() {
               <input type="hidden" {...form.register("longitude")} />
 
               {/* Show error if location not selected from autocomplete */}
-              {(form.formState.errors.latitude || form.formState.errors.longitude) && (
+              {(form.formState.errors.latitude ||
+                form.formState.errors.longitude) && (
                 <p className="text-sm font-medium text-destructive">
                   Please select a location from the dropdown to set coordinates
                 </p>
