@@ -36,10 +36,7 @@ import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
 import { generateSigner } from "@metaplex-foundation/umi";
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
-import {
-  createTreeV2,
-  mplBubblegum,
-} from "@metaplex-foundation/mpl-bubblegum";
+import { createTreeV2, mplBubblegum } from "@metaplex-foundation/mpl-bubblegum";
 import {
   createCollection as createUmiCollection,
   fetchCollection,
@@ -49,7 +46,6 @@ import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
 import CpopList from "@/components/cpop-list";
-import createToken from "@/lib/cpop-mint";
 import {
   Select,
   SelectContent,
@@ -58,10 +54,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  treeSizeOptions,
-  type TreeSizeOption,
-} from "@/lib/tree-config";
+import { treeSizeOptions, type TreeSizeOption } from "@/lib/tree-config";
+import createToken from "@/app/actions";
 
 const formSchema = z
   .object({
@@ -259,10 +253,7 @@ export default function CPOPCreatorForm() {
 
       console.log("Tree creation transaction:", response);
       if ("signature" in response && response.signature) {
-        console.log(
-          "✅ Merkle Tree created:",
-          response.signature.toString()
-        );
+        console.log("✅ Merkle Tree created:", response.signature.toString());
       }
 
       // brief delay to allow tree to finalize
@@ -274,7 +265,9 @@ export default function CPOPCreatorForm() {
       setTreeStatusMessage(
         `Tree created (${isTreePublic ? "public" : "private"}) with depth ${
           selectedTreeSize.treeDepth
-        } and canopy ${selectedTreeSize.canopyDepth}. Save this address for future use.`
+        } and canopy ${
+          selectedTreeSize.canopyDepth
+        }. Save this address for future use.`
       );
 
       toast({
@@ -303,58 +296,57 @@ export default function CPOPCreatorForm() {
     }
 
     // try {
-      setCollectionStatusMessage("Creating cPOP collection via Metaplex...");
-      setCollectionAddress(null);
+    setCollectionStatusMessage("Creating cPOP collection via Metaplex...");
+    setCollectionAddress(null);
 
-      const umi = initializeUmi();
-      const collectionSigner = generateSigner(umi);
-      const collectionName =
-        values.eventName.trim().slice(0, 32) || "cPOP Collection";
-      const fallbackMetadataUri =
-        values.website?.trim() || "https://example.com";
-      let metadataUri = fallbackMetadataUri;
+    const umi = initializeUmi();
+    const collectionSigner = generateSigner(umi);
+    const collectionName =
+      values.eventName.trim().slice(0, 32) || "cPOP Collection";
+    const fallbackMetadataUri = values.website?.trim() || "https://example.com";
+    let metadataUri = fallbackMetadataUri;
 
-      // try {
-        let uploadedImageUri: string | undefined;
+    // try {
+    let uploadedImageUri: string | undefined;
 
-        if (values.imageUrl) {
-          const imageResponse = await fetch(values.imageUrl);
-          if (!imageResponse.ok) {
-            throw new Error("Failed to fetch collection image for upload.");
-          }
-          console.log(values.imageUrl)
-        //   const blob = await imageResponse.blob();
-        //   const extension = (() => {
-        //     try {
-        //       const url = new URL(values.imageUrl!);
-        //       const parts = url.pathname.split("/");
-        //       const filePart = parts[parts.length - 1];
-        //       return filePart?.split(".").pop();
-        //     } catch {
-        //       return undefined;
-        //     }
-        //   })();
-        //   const inferredName = extension
-        //     ? `collection-image.${extension}`
-        //     : "collection-image.png";
-        //   const inferredType = blob.type || "application/octet-stream";
-        //   const file = new File([blob], inferredName, { type: inferredType });
-        //   const genericFile = await createGenericFileFromBrowserFile(file);
-        //   const [uploadedUri] = await umi.uploader.upload([genericFile]);
-        //   uploadedImageUri = uploadedUri;
-        // }
+    if (values.imageUrl) {
+      const imageResponse = await fetch(values.imageUrl);
+      if (!imageResponse.ok) {
+        throw new Error("Failed to fetch collection image for upload.");
+      }
+      console.log(values.imageUrl);
+      //   const blob = await imageResponse.blob();
+      //   const extension = (() => {
+      //     try {
+      //       const url = new URL(values.imageUrl!);
+      //       const parts = url.pathname.split("/");
+      //       const filePart = parts[parts.length - 1];
+      //       return filePart?.split(".").pop();
+      //     } catch {
+      //       return undefined;
+      //     }
+      //   })();
+      //   const inferredName = extension
+      //     ? `collection-image.${extension}`
+      //     : "collection-image.png";
+      //   const inferredType = blob.type || "application/octet-stream";
+      //   const file = new File([blob], inferredName, { type: inferredType });
+      //   const genericFile = await createGenericFileFromBrowserFile(file);
+      //   const [uploadedUri] = await umi.uploader.upload([genericFile]);
+      //   uploadedImageUri = uploadedUri;
+      // }
 
-        metadataUri = await umi.uploader.uploadJson({
-          name: collectionName,
-          description: values.description,
-          image: values.imageUrl,
-          external_url: values.website
-        });
+      metadataUri = await umi.uploader.uploadJson({
+        name: collectionName,
+        description: values.description,
+        image: values.imageUrl,
+        external_url: values.website,
+      });
       // } catch (metadataError) {
       //   console.error("Error uploading collection metadata:", metadataError);
       //   metadataUri = fallbackMetadataUri;
       // }
-      console.log(metadataUri)
+      console.log(metadataUri);
 
       const collectionBuilder = createUmiCollection(umi, {
         collection: collectionSigner,
@@ -392,7 +384,7 @@ export default function CPOPCreatorForm() {
         address: newCollectionAddress,
         signature: signature?.toString?.(),
       };
-    } 
+    }
     // catch (error) {
     //   console.error("Error creating collection:", error);
     //   setCollectionStatusMessage("Failed to create collection. Please try again.");
