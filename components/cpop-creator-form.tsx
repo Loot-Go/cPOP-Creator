@@ -31,7 +31,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { clusterApiUrl, PublicKey } from "@solana/web3.js";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
+import { generateSigner } from "@metaplex-foundation/umi";
+import { createTreeV2 } from "@metaplex-foundation/mpl-bubblegum";
 import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
@@ -198,7 +202,7 @@ export default function CPOPCreatorForm() {
   }
 
   async function createTree() {
-    if (!connected || !publicKey) {
+    if (!connected || !publicKey || !wallet?.adapter) {
       toast({
         title: "Connect wallet",
         description: "A connected wallet is required to create a tree.",
@@ -209,24 +213,63 @@ export default function CPOPCreatorForm() {
 
     try {
       setIsCreatingTree(true);
-      setTreeStatusMessage(null);
-      // Placeholder until tree creation RPC is wired up
-      await new Promise((resolve) => setTimeout(resolve, 1200));
-      const newTree = Keypair.generate().publicKey.toBase58();
-      setTreeAddress(newTree);
-      setTreeInput(newTree);
-      setTreeStatusMessage(
-        "Tree created! Save this address for future use before minting tokens."
+      setTreeStatusMessage("Creating Bubblegum tree on Solana...");
+
+      const rpcEndpoint =
+        connection.rpcEndpoint ||
+        (connection as unknown as { _rpcEndpoint?: string })._rpcEndpoint ||
+        process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT ||
+        clusterApiUrl("devnet");
+
+      const umi = createUmi(rpcEndpoint).use(
+        walletAdapterIdentity(wallet.adapter)
       );
+
+      const newMerkleTree = generateSigner(umi);
+      const treeBuilder = await createTreeV2(umi, {
+        merkleTree: newMerkleTree,
+        maxDepth: selectedTreeSize.treeDepth,
+        maxBufferSize: selectedTreeSize.concurrencyBuffer,
+        canopyDepth: selectedTreeSize.canopyDepth,
+      });
+
+      const response = await treeBuilder.sendAndConfirm(umi, {
+        confirm: { commitment: "finalized" },
+      });
+
+      console.log("Tree creation transaction:", response);
+      if ("signature" in response && response.signature) {
+        console.log(
+          "✅ Merkle Tree created:",
+          response.signature.toString()
+        );
+      }
+
+      // brief delay to allow tree to finalize
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      const newTreeAddress = newMerkleTree.publicKey.toString();
+      setTreeAddress(newTreeAddress);
+      setTreeInput(newTreeAddress);
+      setTreeStatusMessage(
+        `Tree created (${isTreePublic ? "public" : "private"}) with depth ${
+          selectedTreeSize.treeDepth
+        } and canopy ${selectedTreeSize.canopyDepth}. Save this address for future use.`
+      );
+
       toast({
         title: "Tree created",
         description: "Copy and store this address safely.",
       });
     } catch (error) {
       console.error("Error creating tree:", error);
+      setTreeStatusMessage("Failed to create tree. Please try again.");
       toast({
         title: "Unable to create tree",
-        description: "Please try again.",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please try again after checking your wallet approval.",
         variant: "destructive",
       });
     } finally {
@@ -872,10 +915,10 @@ export default function CPOPCreatorForm() {
                 {isSubmitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating cPOP...
+                    Creating Collection...
                   </>
                 ) : (
-                  "Create cPOP Tokens"
+                  "Create cPOP Collection"
                 )}
               </Button>
             </form>

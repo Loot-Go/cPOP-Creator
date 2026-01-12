@@ -18,6 +18,7 @@
     "@metaplex-foundation/mpl-token-metadata": "^3.4.0",
     "@metaplex-foundation/umi": "^1.2.0",
     "@metaplex-foundation/umi-bundle-defaults": "^1.2.0",
+    "@metaplex-foundation/umi-signer-wallet-adapters": "^1.4.1",
     "@metaplex-foundation/umi-uploader-irys": "^1.2.0",
     "@metaplex-foundation/umi-web3js-adapters": "^1.2.0",
     "@prisma/client": "^6.7.0",
