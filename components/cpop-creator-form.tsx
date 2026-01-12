@@ -35,7 +35,16 @@ import { clusterApiUrl, PublicKey } from "@solana/web3.js";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
 import { generateSigner } from "@metaplex-foundation/umi";
-import { createTreeV2 } from "@metaplex-foundation/mpl-bubblegum";
+import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
+import {
+  createTreeV2,
+  mplBubblegum,
+} from "@metaplex-foundation/mpl-bubblegum";
+import {
+  createCollection as createUmiCollection,
+  fetchCollection,
+  mplCore,
+} from "@metaplex-foundation/mpl-core";
 import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
@@ -98,9 +107,7 @@ const formSchema = z
   });
 
 export default function CPOPCreatorForm() {
-  const { connected, publicKey, wallet, connecting, sendTransaction } =
-    useWallet();
-  const walletMeta = useWallet();
+  const { connected, publicKey, wallet, connecting } = useWallet();
   const [cpop, setCpop] = useState<string | null>(null);
   const [transactionUrl, setTransactionUrl] = useState<string | null>(null);
   const [successEventDetails, setSuccessEventDetails] = useState<{
@@ -125,12 +132,33 @@ export default function CPOPCreatorForm() {
   const [isCreatingTree, setIsCreatingTree] = useState(false);
   const [treeSize, setTreeSize] = useState(treeSizeOptions[0].value);
   const [isTreePublic, setIsTreePublic] = useState(false);
+  const [collectionAddress, setCollectionAddress] = useState<string | null>(
+    null
+  );
+  const [collectionStatusMessage, setCollectionStatusMessage] = useState<
+    string | null
+  >(null);
   const selectedTreeSize: TreeSizeOption =
     treeSizeOptions.find((option) => option.value === treeSize) ??
     treeSizeOptions[0];
   const treeSizeDetails = `~${selectedTreeSize.costPerCNFT.toFixed(
     8
   )} SOL per cNFT.`;
+  const resolveRpcEndpoint = () =>
+    connection?.rpcEndpoint ||
+    (connection as unknown as { _rpcEndpoint?: string })._rpcEndpoint ||
+    process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT ||
+    clusterApiUrl("devnet");
+  const initializeUmi = () => {
+    if (!wallet?.adapter) {
+      throw new Error("Wallet adapter not available");
+    }
+    return createUmi(resolveRpcEndpoint())
+      .use(walletAdapterIdentity(wallet.adapter))
+      .use(mplCore())
+      .use(mplBubblegum())
+      .use(irysUploader());
+  };
 
   // Add effect to log wallet state changes
   useEffect(() => {
@@ -215,15 +243,7 @@ export default function CPOPCreatorForm() {
       setIsCreatingTree(true);
       setTreeStatusMessage("Creating Bubblegum tree on Solana...");
 
-      const rpcEndpoint =
-        connection.rpcEndpoint ||
-        (connection as unknown as { _rpcEndpoint?: string })._rpcEndpoint ||
-        process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT ||
-        clusterApiUrl("devnet");
-
-      const umi = createUmi(rpcEndpoint).use(
-        walletAdapterIdentity(wallet.adapter)
-      );
+      const umi = initializeUmi();
 
       const newMerkleTree = generateSigner(umi);
       const treeBuilder = await createTreeV2(umi, {
@@ -275,6 +295,109 @@ export default function CPOPCreatorForm() {
     } finally {
       setIsCreatingTree(false);
     }
+  }
+
+  async function createCollectionOnChain(values: z.infer<typeof formSchema>) {
+    if (!connected || !publicKey || !wallet?.adapter) {
+      throw new Error("Connect wallet before creating a collection.");
+    }
+
+    // try {
+      setCollectionStatusMessage("Creating cPOP collection via Metaplex...");
+      setCollectionAddress(null);
+
+      const umi = initializeUmi();
+      const collectionSigner = generateSigner(umi);
+      const collectionName =
+        values.eventName.trim().slice(0, 32) || "cPOP Collection";
+      const fallbackMetadataUri =
+        values.website?.trim() || "https://example.com";
+      let metadataUri = fallbackMetadataUri;
+
+      // try {
+        let uploadedImageUri: string | undefined;
+
+        if (values.imageUrl) {
+          const imageResponse = await fetch(values.imageUrl);
+          if (!imageResponse.ok) {
+            throw new Error("Failed to fetch collection image for upload.");
+          }
+          console.log(values.imageUrl)
+        //   const blob = await imageResponse.blob();
+        //   const extension = (() => {
+        //     try {
+        //       const url = new URL(values.imageUrl!);
+        //       const parts = url.pathname.split("/");
+        //       const filePart = parts[parts.length - 1];
+        //       return filePart?.split(".").pop();
+        //     } catch {
+        //       return undefined;
+        //     }
+        //   })();
+        //   const inferredName = extension
+        //     ? `collection-image.${extension}`
+        //     : "collection-image.png";
+        //   const inferredType = blob.type || "application/octet-stream";
+        //   const file = new File([blob], inferredName, { type: inferredType });
+        //   const genericFile = await createGenericFileFromBrowserFile(file);
+        //   const [uploadedUri] = await umi.uploader.upload([genericFile]);
+        //   uploadedImageUri = uploadedUri;
+        // }
+
+        metadataUri = await umi.uploader.uploadJson({
+          name: collectionName,
+          description: values.description,
+          image: values.imageUrl,
+          external_url: values.website
+        });
+      // } catch (metadataError) {
+      //   console.error("Error uploading collection metadata:", metadataError);
+      //   metadataUri = fallbackMetadataUri;
+      // }
+      console.log(metadataUri)
+
+      const collectionBuilder = createUmiCollection(umi, {
+        collection: collectionSigner,
+        name: collectionName,
+        uri: metadataUri,
+        plugins: [{ type: "BubblegumV2" }],
+      });
+
+      const { signature } = await collectionBuilder.sendAndConfirm(umi, {
+        confirm: { commitment: "finalized" },
+      });
+
+      console.log("Collection creation signature:", signature?.toString?.());
+
+      // Allow RPC some time to finalize before fetching
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const fetchedCollection = await fetchCollection(
+        umi,
+        collectionSigner.publicKey
+      );
+      console.log("On-chain collection:", fetchedCollection);
+
+      const newCollectionAddress = collectionSigner.publicKey.toString();
+      setCollectionAddress(newCollectionAddress);
+      setCollectionStatusMessage(
+        `Collection created for "${values.eventName}". Save this address for future drops.`
+      );
+
+      toast({
+        title: "Collection created",
+        description: "Copy and store the collection address safely.",
+      });
+
+      return {
+        address: newCollectionAddress,
+        signature: signature?.toString?.(),
+      };
+    } 
+    // catch (error) {
+    //   console.error("Error creating collection:", error);
+    //   setCollectionStatusMessage("Failed to create collection. Please try again.");
+    //   throw error;
+    // }
   }
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -338,8 +461,10 @@ export default function CPOPCreatorForm() {
     try {
       setIsSubmitting(true);
       console.log("=== CALLING createToken ===");
+      const collectionResult = await createCollectionOnChain(values);
+      console.log("=== createCollection RESPONSE ===", collectionResult);
 
-      const { logs, cpop, error, message } = await createToken({
+      const { cpop, error, message } = await createToken({
         name: values.eventName,
         symbol: values.organizerName,
         uri: values.website,
@@ -361,62 +486,59 @@ export default function CPOPCreatorForm() {
         latitude: parseFloat(values.latitude),
         longitude: parseFloat(values.longitude),
         creator_address: publicKey.toString(),
-        wallet: walletMeta,
-        sendTransaction,
-        connection,
+        treeAddress: treeAddress || undefined,
+        collectionAddress: collectionResult?.address,
+        collectionSignature: collectionResult?.signature,
       });
 
       console.log("=== createToken RESPONSE ===", {
-        logs,
         cpop,
         error,
         message,
       });
 
-      if (error) {
+      if (error || !cpop) {
         console.log("createToken returned error:", message);
         toast({
           title: "Error",
-          description: message as string,
+          description:
+            typeof message === "string"
+              ? message
+              : "Failed to save cPOP metadata.",
           variant: "destructive",
         });
         return;
-      } else {
-        if (logs) {
-          setCpop(cpop.id);
-
-          // Find the last transaction (compress tokens) for the main transaction link
-          const compressTx = logs.find(
-            (log: { type: string }) => log.type === "Compress Tokens"
-          );
-          if (compressTx) {
-            setTransactionUrl(compressTx.tx);
-          } else if (logs.length > 0) {
-            setTransactionUrl(logs[logs.length - 1].tx);
-          }
-
-          // Store event details for success page
-          setSuccessEventDetails({
-            eventName: values.eventName,
-            organizerName: values.organizerName,
-            description: values.description,
-            website: values.website,
-            location: values.location,
-            startDate: values.startDate,
-            endDate: values.endDate,
-            amount: values.amount,
-            imageUrl: values.imageUrl,
-          });
-
-          toast({
-            title: "cPOP created!",
-            description: `Successfully created ${values.amount} cPOP tokens for "${values.eventName}"`,
-          });
-
-          // Reset the form
-          form.reset();
-        }
       }
+
+      setCpop(cpop.id);
+      const explorerCluster =
+        process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
+      if (collectionResult?.signature) {
+        setTransactionUrl(
+          `https://explorer.solana.com/tx/${collectionResult.signature}?cluster=${explorerCluster}`
+        );
+      } else {
+        setTransactionUrl(null);
+      }
+
+      setSuccessEventDetails({
+        eventName: values.eventName,
+        organizerName: values.organizerName,
+        description: values.description,
+        website: values.website,
+        location: values.location,
+        startDate: values.startDate,
+        endDate: values.endDate,
+        amount: values.amount,
+        imageUrl: values.imageUrl,
+      });
+
+      toast({
+        title: "cPOP created!",
+        description: `Successfully created ${values.amount} cPOP tokens for "${values.eventName}"`,
+      });
+
+      form.reset();
     } catch (error) {
       console.error("Error creating cPOP:", error);
       toast({
@@ -886,7 +1008,7 @@ export default function CPOPCreatorForm() {
                   </div>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {treeStatusMessage && (
                     <p className="text-xs text-muted-foreground">
                       {treeStatusMessage}
@@ -898,6 +1020,22 @@ export default function CPOPCreatorForm() {
                       <p className="font-medium">Tree address</p>
                       <p className="font-mono text-xs break-all">
                         {treeAddress}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Save this for future use.
+                      </p>
+                    </div>
+                  )}
+                  {collectionStatusMessage && (
+                    <p className="text-xs text-muted-foreground">
+                      {collectionStatusMessage}
+                    </p>
+                  )}
+                  {collectionAddress && (
+                    <div className="rounded-md border border-indigo-500/40 bg-indigo-500/5 p-3 text-sm">
+                      <p className="font-medium">Collection address</p>
+                      <p className="font-mono text-xs break-all">
+                        {collectionAddress}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Save this for future use.
