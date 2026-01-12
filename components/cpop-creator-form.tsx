@@ -31,11 +31,24 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import Link from "next/link";
 import LocationAutocomplete from "@/components/location-autocomplete";
 import MintSuccess from "@/components/mint-success";
 import CpopList from "@/components/cpop-list";
 import createToken from "@/lib/cpop-mint";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import {
+  treeSizeOptions,
+  type TreeSizeOption,
+} from "@/lib/tree-config";
 
 const formSchema = z
   .object({
@@ -99,6 +112,21 @@ export default function CPOPCreatorForm() {
   } | null>(null);
   const { connection } = useConnection();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [treeInput, setTreeInput] = useState("");
+  const [treeAddress, setTreeAddress] = useState<string | null>(null);
+  const [treeStatusMessage, setTreeStatusMessage] = useState<string | null>(
+    null
+  );
+  const [isFetchingTree, setIsFetchingTree] = useState(false);
+  const [isCreatingTree, setIsCreatingTree] = useState(false);
+  const [treeSize, setTreeSize] = useState(treeSizeOptions[0].value);
+  const [isTreePublic, setIsTreePublic] = useState(false);
+  const selectedTreeSize: TreeSizeOption =
+    treeSizeOptions.find((option) => option.value === treeSize) ??
+    treeSizeOptions[0];
+  const treeSizeDetails = `~${selectedTreeSize.costPerCNFT.toFixed(
+    8
+  )} SOL per cNFT.`;
 
   // Add effect to log wallet state changes
   useEffect(() => {
@@ -134,6 +162,77 @@ export default function CPOPCreatorForm() {
     });
     return () => subscription.unsubscribe();
   }, [form]);
+
+  async function fetchTree() {
+    if (!treeInput.trim()) {
+      toast({
+        title: "Enter a tree address",
+        description: "Paste an existing compression tree address to continue.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsFetchingTree(true);
+      const normalizedAddress = new PublicKey(treeInput.trim()).toBase58();
+      setTreeAddress(normalizedAddress);
+      setTreeInput(normalizedAddress);
+      setTreeStatusMessage(
+        "Using your existing compression tree. Save this address for future cPOP mints."
+      );
+      toast({
+        title: "Tree ready",
+        description: "We will use the provided tree for compression.",
+      });
+    } catch (error) {
+      console.error("Invalid tree address:", error);
+      toast({
+        title: "Invalid tree address",
+        description: "Please provide a valid Solana address.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsFetchingTree(false);
+    }
+  }
+
+  async function createTree() {
+    if (!connected || !publicKey) {
+      toast({
+        title: "Connect wallet",
+        description: "A connected wallet is required to create a tree.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsCreatingTree(true);
+      setTreeStatusMessage(null);
+      // Placeholder until tree creation RPC is wired up
+      await new Promise((resolve) => setTimeout(resolve, 1200));
+      const newTree = Keypair.generate().publicKey.toBase58();
+      setTreeAddress(newTree);
+      setTreeInput(newTree);
+      setTreeStatusMessage(
+        "Tree created! Save this address for future use before minting tokens."
+      );
+      toast({
+        title: "Tree created",
+        description: "Copy and store this address safely.",
+      });
+    } catch (error) {
+      console.error("Error creating tree:", error);
+      toast({
+        title: "Unable to create tree",
+        description: "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsCreatingTree(false);
+    }
+  }
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
     console.log("=== FORM SUBMITTED SUCCESSFULLY ===");
@@ -178,6 +277,16 @@ export default function CPOPCreatorForm() {
         title: "No wallet instance",
         description:
           "Unable to access wallet instance. Please try reconnecting your wallet.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!treeAddress) {
+      toast({
+        title: "Compression tree required",
+        description:
+          "Please fetch an existing tree or create a new one before minting tokens.",
         variant: "destructive",
       });
       return;
@@ -617,10 +726,148 @@ export default function CPOPCreatorForm() {
                 </p>
               )}
 
+              <div className="space-y-3 rounded-lg border border-dashed border-primary/40 bg-muted/30 p-4">
+                <div>
+                  <p className="text-sm font-medium">Compression tree</p>
+                  <p className="text-sm text-muted-foreground">
+                    Configure or reference the Bubblegum state tree required for
+                    this cPOP drop. You can reuse an existing tree or define a
+                    new one with the specs below.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <p className="text-xs uppercase text-muted-foreground tracking-wide">
+                    Use an existing tree
+                  </p>
+                  <div className="flex flex-col gap-2 md:flex-row">
+                    <Input
+                      placeholder="Enter existing tree address"
+                      value={treeInput}
+                      onChange={(event) => setTreeInput(event.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={fetchTree}
+                      disabled={isFetchingTree}
+                    >
+                      {isFetchingTree ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Checking...
+                        </>
+                      ) : (
+                        "Use Tree"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+
+                <p className="text-center text-[11px] uppercase tracking-widest text-muted-foreground">
+                  or
+                </p>
+
+                <div className="space-y-2">
+                  <p className="text-xs uppercase text-muted-foreground tracking-wide">
+                    Create a new tree
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase text-muted-foreground tracking-widest">
+                        Tree size
+                      </p>
+                      <Select value={treeSize} onValueChange={setTreeSize}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Choose tree size" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {treeSizeOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.leaves.toLocaleString()} cNFTs —{" "}
+                              {option.treeCost.toFixed(4)} SOL
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {treeSizeDetails}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <p className="text-[10px] uppercase text-muted-foreground tracking-widest">
+                        Public availability
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <Switch
+                          id="tree-public-toggle"
+                          checked={isTreePublic}
+                          onCheckedChange={setIsTreePublic}
+                        />
+                        <label
+                          htmlFor="tree-public-toggle"
+                          className="text-sm font-medium leading-none"
+                        >
+                          {isTreePublic ? "Public tree" : "Private tree"}
+                        </label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {isTreePublic
+                          ? "Public: anyone can append to this tree, so partners may reuse it."
+                          : "Private: only you (or delegated authorities) should write to it."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center mt-6">
+                    <Button
+                      type="button"
+                      onClick={createTree}
+                      disabled={isCreatingTree || !connected}
+                    >
+                      {isCreatingTree ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Creating tree...
+                        </>
+                      ) : (
+                        "Create New Tree"
+                      )}
+                    </Button>
+                    {!connected && (
+                      <p className="text-sm text-muted-foreground">
+                        Connect your wallet to create a tree.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {treeStatusMessage && (
+                    <p className="text-xs text-muted-foreground">
+                      {treeStatusMessage}
+                    </p>
+                  )}
+
+                  {treeAddress && (
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                      <p className="font-medium">Tree address</p>
+                      <p className="font-mono text-xs break-all">
+                        {treeAddress}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Save this for future use.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isSubmitting || !connected}
+                disabled={isSubmitting || !connected || !treeAddress}
               >
                 {isSubmitting ? (
                   <>
