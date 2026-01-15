@@ -1,9 +1,6 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
-import { getRpcUrl } from "@/lib/utils";
-import { transfer } from "@lightprotocol/compressed-token";
-import { createRpc } from "@lightprotocol/stateless.js";
 // import {
 //   createInitializeMetadataPointerInstruction,
 //   createInitializeMintInstruction,
@@ -20,8 +17,6 @@ import { createRpc } from "@lightprotocol/stateless.js";
 //   pack,
 //   TokenMetadata,
 // } from "@solana/spl-token-metadata";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import bs58 from "bs58";
 
 // const createToken = async ({
 //   name,
@@ -376,66 +371,6 @@ export const createToken = async ({
           : "Failed to save cPOP metadata.",
     };
   }
-};
-
-export const claim = async (
-  wallet_address: PublicKey,
-  mint_address: PublicKey
-) => {
-  const payer = Keypair.fromSecretKey(bs58.decode(process.env.PAYER_KEYPAIR!));
-
-  const RPC_ENDPOINT = getRpcUrl();
-  const connection = createRpc(RPC_ENDPOINT);
-
-  // Find the CPOP record by token address
-  const cpop = await prisma.cpop.findFirst({
-    where: {
-      tokenAddress: mint_address.toString(),
-    },
-  });
-
-  if (!cpop) {
-    throw new Error("CPOP not found");
-  }
-
-  // Check if claim already exists
-  const existingClaim = await prisma.cpopClaim.findFirst({
-    where: {
-      cpopId: cpop.id,
-      walletAddress: wallet_address.toString(),
-    },
-  });
-
-  if (existingClaim) {
-    throw new Error("CPOP already claimed by this wallet");
-  }
-
-  const to = new PublicKey(wallet_address);
-  const mint = new PublicKey(mint_address);
-  const transferCompressedTxId = await transfer(
-    connection,
-    payer,
-    mint,
-    1e9,
-    payer,
-    to
-  );
-  console.log(`transfer-compressed success! txId: ${transferCompressedTxId}`);
-
-  // Store the claim record
-  await prisma.cpopClaim.create({
-    data: {
-      cpopId: cpop.id,
-      walletAddress: wallet_address.toString(),
-      tokenAddress: mint_address.toString(),
-    },
-  });
-
-  return {
-    success: true,
-    txId: transferCompressedTxId,
-    message: "CPOP claimed successfully",
-  };
 };
 
 export default createToken;

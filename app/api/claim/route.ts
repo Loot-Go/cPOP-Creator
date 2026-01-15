@@ -1,7 +1,23 @@
 import { prisma } from "@/lib/prisma";
-import { PublicKey } from "@solana/web3.js";
+import { getRpcUrl } from "@/lib/utils";
 import { NextRequest, NextResponse } from "next/server";
-import { claim } from "../../actions";
+import { PublicKey } from "@solana/web3.js";
+import bs58 from "bs58";
+import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
+import {
+  createNoopSigner,
+  createSignerFromKeypair,
+  signerIdentity,
+  signTransaction,
+  some,
+  none,
+} from "@metaplex-foundation/umi";
+import {
+  fromWeb3JsPublicKey,
+  toWeb3JsTransaction,
+} from "@metaplex-foundation/umi-web3js-adapters";
+import { mplBubblegum, mintV2 } from "@metaplex-foundation/mpl-bubblegum";
+import { mplCore } from "@metaplex-foundation/mpl-core";
 
 // Calculate distance between two coordinates in meters using Haversine formula
 function calculateDistance(
@@ -69,59 +85,160 @@ export const GET = async (request: NextRequest) => {
     }
   }
 
-  const mint_address = cpop.tokenId!;
-
-  try {
-    const claimStatus = await claim(
-      new PublicKey(wallet_address),
-      new PublicKey(mint_address)
+  if (!cpop.tokenId || !cpop.tokenAddress) {
+    return NextResponse.json(
+      { error: "CPOP is missing compression data." },
+      { status: 400 }
     );
-    return NextResponse.json(claimStatus);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Failed to claim";
-    return NextResponse.json({ error: errorMessage }, { status: 400 });
   }
+
+  const now = new Date();
+  if (cpop.startDate && now < cpop.startDate) {
+    return NextResponse.json(
+      {
+        error: `Claiming opens on ${cpop.startDate.toISOString()}`,
+      },
+      { status: 403 }
+    );
+  }
+  if (cpop.endDate && now > cpop.endDate) {
+    return NextResponse.json(
+      {
+        error: "Claiming period has ended for this event.",
+      },
+      { status: 403 }
+    );
+  }
+
+  const existingClaim = await prisma.cpopClaim.findFirst({
+    where: {
+      cpopId: cpop.id,
+      walletAddress: wallet_address,
+    },
+  });
+
+  if (existingClaim) {
+    return NextResponse.json(
+      { error: "You have already claimed this cPOP." },
+      { status: 409 }
+    );
+  }
+
+  const umi = createUmi(getRpcUrl()).use(mplCore()).use(mplBubblegum());
+  const secret = bs58.decode(process.env.PAYER_KEYPAIR!);
+  const backendKeypair = umi.eddsa.createKeypairFromSecretKey(
+    new Uint8Array(secret)
+  );
+  const backendSigner = createSignerFromKeypair(umi, backendKeypair);
+  umi.use(signerIdentity(backendSigner, true));
+
+  const leafOwnerPk = new PublicKey(wallet_address);
+  const leafOwner = fromWeb3JsPublicKey(leafOwnerPk);
+  const payerSigner = createNoopSigner(leafOwner);
+  const treePk = new PublicKey(cpop.tokenId);
+  const collectionPk = new PublicKey(cpop.tokenAddress);
+  const metadataUri = cpop.tokenURI || cpop.website;
+
+  if (!metadataUri) {
+    return NextResponse.json(
+      {
+        error:
+          "CPOP metadata is missing a URI. Please contact the event organizer.",
+      },
+      { status: 400 }
+    );
+  }
+
+  const builder = mintV2(umi, {
+    payer: payerSigner,
+    treeCreatorOrDelegate: backendSigner,
+    collectionAuthority: backendSigner,
+    leafOwner,
+    leafDelegate: leafOwner,
+    merkleTree: fromWeb3JsPublicKey(treePk),
+    coreCollection: fromWeb3JsPublicKey(collectionPk),
+    metadata: {
+      name: cpop.eventName.slice(0, 32),
+      symbol: cpop.organizerName.slice(0, 10) || "CPOP",
+      uri: metadataUri,
+      sellerFeeBasisPoints: 0,
+      primarySaleHappened: false,
+      isMutable: true,
+      tokenStandard: none(),
+      creators: [
+        {
+          address: backendSigner.publicKey,
+          verified: true,
+          share: 100,
+        },
+      ],
+      collection: some(fromWeb3JsPublicKey(collectionPk)),
+    },
+  }).setFeePayer(payerSigner);
+
+  const latestBlockhash = await umi.rpc.getLatestBlockhash();
+  const transaction = await builder.setBlockhash(latestBlockhash).build(umi);
+  const partiallySigned = await signTransaction(transaction, [backendSigner]);
+  const versionedTx = toWeb3JsTransaction(partiallySigned);
+  const serialized = Buffer.from(
+    versionedTx.serialize()
+  ).toString("base64");
+
+  return NextResponse.json({
+    transaction: serialized,
+    blockhash: latestBlockhash.blockhash,
+    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+  });
 };
 
 export async function POST(request: Request) {
-  const authHeader = request.headers.get("authorization");
-
-  if (!authHeader) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const token = authHeader.split(" ")[1];
-
-  if (!token) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  // Verify the token against the environment variable
-  if (token !== process.env.API_TOKEN) {
-    return NextResponse.json({ error: "Invalid token" }, { status: 401 });
-  }
-
   try {
     const body = await request.json();
-    const { wallet_address, mint_address } = body;
+    const { wallet_address, id, signature } = body;
 
-    if (!wallet_address || !mint_address) {
+    if (!wallet_address || !id || !signature) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required claim fields" },
         { status: 400 }
       );
     }
 
-    const claimStatus = await claim(
-      new PublicKey(wallet_address),
-      new PublicKey(mint_address)
-    );
+    const cpop = await prisma.cpop.findFirst({
+      where: { id },
+    });
 
-    return NextResponse.json(claimStatus);
+    if (!cpop) {
+      return NextResponse.json({ error: "CPOP not found" }, { status: 404 });
+    }
+
+    const existingClaim = await prisma.cpopClaim.findFirst({
+      where: {
+        cpopId: id,
+        walletAddress: wallet_address,
+      },
+    });
+
+    if (existingClaim) {
+      return NextResponse.json(
+        { error: "CPOP already claimed by this wallet" },
+        { status: 409 }
+      );
+    }
+
+    await prisma.cpopClaim.create({
+      data: {
+        id: crypto.randomUUID(),
+        cpopId: id,
+        walletAddress: wallet_address,
+        tokenAddress: cpop.tokenAddress,
+      },
+    });
+
+    return NextResponse.json({ success: true, signature });
   } catch (error) {
-    console.error("Error processing claim:", error);
+    console.error("Error recording claim:", error);
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: "Failed to record claim" },
       { status: 500 }
     );
   }
