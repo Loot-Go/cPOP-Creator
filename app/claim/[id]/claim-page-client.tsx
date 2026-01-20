@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@/components/solana/wallet-multi-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,6 @@ import {
   AlertCircle,
   Clock,
 } from "lucide-react";
-import { VersionedTransaction } from "@solana/web3.js";
 
 interface CpopDetails {
   id: string;
@@ -63,8 +62,7 @@ function calculateDistance(
 const CLAIM_RADIUS_METERS = 200;
 
 export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
-  const { connection } = useConnection();
-  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connected, publicKey } = useWallet();
   const [cpop, setCpop] = useState<CpopDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -192,61 +190,22 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
     try {
       const locationParams =
         userLocation && isWithinRange
-          ? { lat: userLocation.lat, lng: userLocation.lng }
-          : {};
-
-      const mintResponse = await fetch(
-        `/api/claim?wallet_address=${publicKey.toString()}&id=${cpopId}${
-          locationParams.lat ? `&lat=${locationParams.lat}` : ""
-        }${locationParams.lng ? `&lng=${locationParams.lng}` : ""}`
-      );
-      const mintData = await mintResponse.json();
-
-      if (!mintResponse.ok) {
-        throw new Error(
-          mintData.error || "Failed to prepare mint transaction."
-        );
-      }
-
-      const txBytes = Uint8Array.from(
-        atob(mintData.transaction),
-        (c) => c.charCodeAt(0)
-      );
-      const versionedTx = VersionedTransaction.deserialize(txBytes);
-      const signature = await sendTransaction(versionedTx, connection, {
-        skipPreflight: false,
-      });
-
-      await connection.confirmTransaction(
+          ? `&lat=${userLocation.lat}&lng=${userLocation.lng}`
+          : "";
+      const response = await fetch(
+        `/api/claim?wallet_address=${publicKey.toString()}&id=${cpopId}${locationParams}`,
         {
-          signature,
-          blockhash: mintData.blockhash,
-          lastValidBlockHeight: mintData.lastValidBlockHeight,
-        },
-        "confirmed"
+          method: "GET",
+        }
       );
+      const data = await response.json();
 
-      const recordResponse = await fetch("/api/claim", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          wallet_address: publicKey.toString(),
-          id: cpopId,
-          signature,
-        }),
-      });
-
-      if (!recordResponse.ok) {
-        const recordError = await recordResponse.json();
-        throw new Error(
-          recordError.error || "Failed to record claim. Please try again."
-        );
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to claim token.");
       }
 
       setClaimed(true);
-      setClaimTxId(signature);
+      setClaimTxId(data.signature);
       toast({
         title: "Success!",
         description: "You have successfully claimed your cPOP token!",
@@ -506,7 +465,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
                 !connected ||
                 !isWithinRange ||
                 claiming ||
-                !isWithinTimeWindow ||
+                // !isWithinTimeWindow ||
                 defaultClaim
               }
               className="w-full"

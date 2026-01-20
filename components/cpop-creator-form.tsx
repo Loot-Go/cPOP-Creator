@@ -31,10 +31,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
 import { cn } from "@/lib/utils";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { clusterApiUrl, PublicKey } from "@solana/web3.js";
+import {
+  clusterApiUrl,
+  LAMPORTS_PER_SOL,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+} from "@solana/web3.js";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-adapters";
-import { generateSigner } from "@metaplex-foundation/umi";
+import {
+  generateSigner,
+  publicKey as umiPublicKey,
+} from "@metaplex-foundation/umi";
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
 import { createTreeV2, mplBubblegum } from "@metaplex-foundation/mpl-bubblegum";
 import {
@@ -56,6 +65,18 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { treeSizeOptions, type TreeSizeOption } from "@/lib/tree-config";
 import createToken from "@/app/actions";
+
+const PLATFORM_TREE_THRESHOLD = Number(
+  process.env.NEXT_PUBLIC_PLATFORM_TREE_THRESHOLD ?? 100
+);
+const DEFAULT_PLATFORM_TREE_ADDRESS =
+  process.env.NEXT_PUBLIC_DEFAULT_TREE_ADDRESS || "";
+const PLATFORM_TREE_OPTION_VALUE =
+  process.env.NEXT_PUBLIC_PLATFORM_TREE_OPTION || treeSizeOptions[0].value;
+const CREATOR_FEE_WALLET =
+  process.env.NEXT_PUBLIC_CREATOR_FEE_WALLET || "";
+const BACKEND_COLLECTION_DELEGATE =
+  process.env.NEXT_PUBLIC_BACKEND_COLLECTION_DELEGATE || "";
 
 const formSchema = z
   .object({
@@ -101,7 +122,8 @@ const formSchema = z
   });
 
 export default function CPOPCreatorForm() {
-  const { connected, publicKey, wallet, connecting } = useWallet();
+  const { connected, publicKey, wallet, connecting, sendTransaction } =
+    useWallet();
   const [cpop, setCpop] = useState<string | null>(null);
   const [transactionUrl, setTransactionUrl] = useState<string | null>(null);
   const [successEventDetails, setSuccessEventDetails] = useState<{
@@ -135,9 +157,6 @@ export default function CPOPCreatorForm() {
   const selectedTreeSize: TreeSizeOption =
     treeSizeOptions.find((option) => option.value === treeSize) ??
     treeSizeOptions[0];
-  const treeSizeDetails = `~${selectedTreeSize.costPerCNFT.toFixed(
-    8
-  )} SOL per cNFT.`;
   const resolveRpcEndpoint = () =>
     connection?.rpcEndpoint ||
     (connection as unknown as { _rpcEndpoint?: string })._rpcEndpoint ||
@@ -178,6 +197,26 @@ export default function CPOPCreatorForm() {
       longitude: "",
     },
   });
+  const platformTreeSize =
+    treeSizeOptions.find(
+      (option) => option.value === PLATFORM_TREE_OPTION_VALUE
+    ) ?? treeSizeOptions[0];
+  const amountValue = Number(form.watch("amount") || 0);
+  const isPlatformTreeConfigured = Boolean(DEFAULT_PLATFORM_TREE_ADDRESS);
+  const usePlatformTree =
+    isPlatformTreeConfigured &&
+    amountValue > 0 &&
+    amountValue <= PLATFORM_TREE_THRESHOLD;
+  const activeTreeSize = usePlatformTree ? platformTreeSize : selectedTreeSize;
+  const treeSizeDetails = `Depth ${activeTreeSize.treeDepth} · Canopy ${
+    activeTreeSize.canopyDepth
+  } · Buffer ${activeTreeSize.concurrencyBuffer} · ~${activeTreeSize.costPerCNFT.toFixed(
+    8
+  )} SOL per cNFT.`;
+  const totalCreationCostSol = 0.000095 * (amountValue || 0);
+  const totalCreationCostLamports = Math.ceil(
+    totalCreationCostSol * LAMPORTS_PER_SOL
+  );
 
   // Log form errors for debugging
   useEffect(() => {
@@ -188,6 +227,23 @@ export default function CPOPCreatorForm() {
     });
     return () => subscription.unsubscribe();
   }, [form]);
+
+  useEffect(() => {
+    if (usePlatformTree && DEFAULT_PLATFORM_TREE_ADDRESS) {
+      setTreeAddress(DEFAULT_PLATFORM_TREE_ADDRESS);
+      setTreeStatusMessage(
+        "Using platform-managed compression tree for this drop."
+      );
+    } else if (usePlatformTree && !DEFAULT_PLATFORM_TREE_ADDRESS) {
+      setTreeStatusMessage(
+        "Platform tree not configured. Please create or supply your own tree."
+      );
+      setTreeAddress(null);
+    } else if (!usePlatformTree && treeAddress === DEFAULT_PLATFORM_TREE_ADDRESS) {
+      setTreeAddress(null);
+      setTreeStatusMessage(null);
+    }
+  }, [usePlatformTree, treeAddress]);
 
   async function fetchTree() {
     if (!treeInput.trim()) {
@@ -290,84 +346,101 @@ export default function CPOPCreatorForm() {
     }
   }
 
+  const collectCreationFee = async (lamports: number) => {
+    if (lamports <= 0) {
+      return null;
+    }
+    if (!connected || !publicKey) {
+      throw new Error("Connect your wallet to pay the creation fee.");
+    }
+    if (!CREATOR_FEE_WALLET) {
+      throw new Error("Creator fee wallet not configured.");
+    }
+    if (!sendTransaction) {
+      throw new Error("Wallet is not ready to send transactions.");
+    }
+
+    const transferTx = new Transaction().add(
+      SystemProgram.transfer({
+        fromPubkey: publicKey,
+        toPubkey: new PublicKey(CREATOR_FEE_WALLET),
+        lamports,
+      })
+    );
+
+    const signature = await sendTransaction(transferTx, connection);
+    await connection.confirmTransaction(signature, "confirmed");
+    return signature;
+  };
+
   async function createCollectionOnChain(values: z.infer<typeof formSchema>) {
     if (!connected || !publicKey || !wallet?.adapter) {
       throw new Error("Connect wallet before creating a collection.");
     }
 
-    // try {
-    setCollectionStatusMessage("Creating cPOP collection via Metaplex...");
-    setCollectionAddress(null);
+    try {
+      setCollectionStatusMessage("Creating cPOP collection via Metaplex...");
+      setCollectionAddress(null);
 
-    const umi = initializeUmi();
-    const collectionSigner = generateSigner(umi);
-    const collectionName =
-      values.eventName.trim().slice(0, 32) || "cPOP Collection";
-    const fallbackMetadataUri = values.website?.trim() || "https://example.com";
-    let metadataUri = fallbackMetadataUri;
+      const umi = initializeUmi();
+      const collectionSigner = generateSigner(umi);
+      const collectionName =
+        values.eventName.trim().slice(0, 32) || "cPOP Collection";
+      const fallbackMetadataUri =
+        values.website?.trim() || "https://example.com";
+      let metadataUri = fallbackMetadataUri;
 
-    // try {
-    let uploadedImageUri: string | undefined;
-
-    if (values.imageUrl) {
-      const imageResponse = await fetch(values.imageUrl);
-      if (!imageResponse.ok) {
-        throw new Error("Failed to fetch collection image for upload.");
+      try {
+        metadataUri = await umi.uploader.uploadJson({
+          name: collectionName,
+          description: values.description,
+          image: values.imageUrl,
+          external_url: values.website,
+        });
+      } catch (metadataError) {
+        console.error("Error uploading collection metadata:", metadataError);
       }
-      console.log(values.imageUrl);
-      //   const blob = await imageResponse.blob();
-      //   const extension = (() => {
-      //     try {
-      //       const url = new URL(values.imageUrl!);
-      //       const parts = url.pathname.split("/");
-      //       const filePart = parts[parts.length - 1];
-      //       return filePart?.split(".").pop();
-      //     } catch {
-      //       return undefined;
-      //     }
-      //   })();
-      //   const inferredName = extension
-      //     ? `collection-image.${extension}`
-      //     : "collection-image.png";
-      //   const inferredType = blob.type || "application/octet-stream";
-      //   const file = new File([blob], inferredName, { type: inferredType });
-      //   const genericFile = await createGenericFileFromBrowserFile(file);
-      //   const [uploadedUri] = await umi.uploader.upload([genericFile]);
-      //   uploadedImageUri = uploadedUri;
-      // }
 
-      metadataUri = await umi.uploader.uploadJson({
-        name: collectionName,
-        description: values.description,
-        image: values.imageUrl,
-        external_url: values.website,
-      });
-      // } catch (metadataError) {
-      //   console.error("Error uploading collection metadata:", metadataError);
-      //   metadataUri = fallbackMetadataUri;
-      // }
-      console.log(metadataUri);
+      const collectionPlugins = [
+        { type: "BubblegumV2" },
+        ...(BACKEND_COLLECTION_DELEGATE
+          ? [
+              {
+                type: "UpdateDelegate" as const,
+                data: {
+                  additionalDelegates: [
+                    umiPublicKey(BACKEND_COLLECTION_DELEGATE),
+                  ],
+                },
+                authority: { type: "UpdateAuthority" as const },
+              },
+            ]
+          : []),
+      ];
 
       const collectionBuilder = createUmiCollection(umi, {
         collection: collectionSigner,
         name: collectionName,
         uri: metadataUri,
-        plugins: [{ type: "BubblegumV2" }],
+        plugins: [
+          { type: "BubblegumV2" },
+          {
+          type: "UpdateDelegate" as const,
+          // data: {
+            additionalDelegates: [
+              umiPublicKey(BACKEND_COLLECTION_DELEGATE),
+            ],
+          // },
+          authority: { type: "UpdateAuthority" as const },
+        }],
       });
 
       const { signature } = await collectionBuilder.sendAndConfirm(umi, {
         confirm: { commitment: "finalized" },
       });
 
-      console.log("Collection creation signature:", signature?.toString?.());
-
-      // Allow RPC some time to finalize before fetching
       await new Promise((resolve) => setTimeout(resolve, 1500));
-      const fetchedCollection = await fetchCollection(
-        umi,
-        collectionSigner.publicKey
-      );
-      console.log("On-chain collection:", fetchedCollection);
+      await fetchCollection(umi, collectionSigner.publicKey);
 
       const newCollectionAddress = collectionSigner.publicKey.toString();
       setCollectionAddress(newCollectionAddress);
@@ -384,12 +457,13 @@ export default function CPOPCreatorForm() {
         address: newCollectionAddress,
         signature: signature?.toString?.(),
       };
+    } catch (error) {
+      console.error("Error creating collection:", error);
+      setCollectionStatusMessage(
+        "Failed to create collection. Please try again."
+      );
+      throw error;
     }
-    // catch (error) {
-    //   console.error("Error creating collection:", error);
-    //   setCollectionStatusMessage("Failed to create collection. Please try again.");
-    //   throw error;
-    // }
   }
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
@@ -440,11 +514,15 @@ export default function CPOPCreatorForm() {
       return;
     }
 
-    if (!treeAddress) {
+    const resolvedTreeAddress = usePlatformTree
+      ? DEFAULT_PLATFORM_TREE_ADDRESS
+      : treeAddress;
+
+    if (!resolvedTreeAddress) {
       toast({
         title: "Compression tree required",
         description:
-          "Please fetch an existing tree or create a new one before minting tokens.",
+          "Please provide a compression tree address before minting tokens.",
         variant: "destructive",
       });
       return;
@@ -453,6 +531,9 @@ export default function CPOPCreatorForm() {
     try {
       setIsSubmitting(true);
       console.log("=== CALLING createToken ===");
+      if (totalCreationCostLamports > 0) {
+        await collectCreationFee(totalCreationCostLamports);
+      }
       const collectionResult = await createCollectionOnChain(values);
       console.log("=== createCollection RESPONSE ===", collectionResult);
 
@@ -478,7 +559,7 @@ export default function CPOPCreatorForm() {
         latitude: parseFloat(values.latitude),
         longitude: parseFloat(values.longitude),
         creator_address: publicKey.toString(),
-        treeAddress: treeAddress || undefined,
+        treeAddress: resolvedTreeAddress || undefined,
         collectionAddress: collectionResult?.address,
         collectionSignature: collectionResult?.signature,
       });
@@ -839,7 +920,9 @@ export default function CPOPCreatorForm() {
                       <Input type="number" min={1} {...field} />
                     </FormControl>
                     <FormDescription>
-                      Number of tokens to create
+                      Number of tokens to create. Drops with{" "}
+                      {`\u2264 ${PLATFORM_TREE_THRESHOLD}`} cNFTs automatically use
+                      our managed compression tree.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -883,6 +966,30 @@ export default function CPOPCreatorForm() {
                 </p>
               )}
 
+              {usePlatformTree ? (
+                <div className="space-y-2 rounded-lg border border-dashed border-primary/40 bg-muted/30 p-4">
+                  <p className="text-sm font-medium">Platform compression tree</p>
+                  <p className="text-sm text-muted-foreground">
+                    This drop mints fewer than {PLATFORM_TREE_THRESHOLD} cNFTs, so it will
+                    use the platform-managed tree automatically.
+                  </p>
+                  {DEFAULT_PLATFORM_TREE_ADDRESS ? (
+                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                      <p className="font-medium">Tree address</p>
+                      <p className="font-mono text-xs break-all">
+                        {DEFAULT_PLATFORM_TREE_ADDRESS}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Keep this handy if you need to reference the tree.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-destructive">
+                      Platform tree address is not configured. Please contact the team.
+                    </p>
+                  )}
+                </div>
+              ) : (
               <div className="space-y-3 rounded-lg border border-dashed border-primary/40 bg-muted/30 p-4">
                 <div>
                   <p className="text-sm font-medium">Compression tree</p>
@@ -1000,47 +1107,60 @@ export default function CPOPCreatorForm() {
                   </div>
                 </div>
 
-                <div className="space-y-3">
-                  {treeStatusMessage && (
-                    <p className="text-xs text-muted-foreground">
-                      {treeStatusMessage}
-                    </p>
-                  )}
+              </div>
+              )}
 
-                  {treeAddress && (
-                    <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-                      <p className="font-medium">Tree address</p>
-                      <p className="font-mono text-xs break-all">
-                        {treeAddress}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Save this for future use.
-                      </p>
-                    </div>
-                  )}
-                  {collectionStatusMessage && (
+              <div className="space-y-3">
+                {treeStatusMessage && (
+                  <p className="text-xs text-muted-foreground">
+                    {treeStatusMessage}
+                  </p>
+                )}
+
+                {treeAddress && (
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+                    <p className="font-medium">Tree address</p>
+                    <p className="font-mono text-xs break-all">{treeAddress}</p>
                     <p className="text-xs text-muted-foreground">
-                      {collectionStatusMessage}
+                      Save this for future use.
                     </p>
-                  )}
-                  {collectionAddress && (
-                    <div className="rounded-md border border-indigo-500/40 bg-indigo-500/5 p-3 text-sm">
-                      <p className="font-medium">Collection address</p>
-                      <p className="font-mono text-xs break-all">
-                        {collectionAddress}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Save this for future use.
-                      </p>
-                    </div>
-                  )}
-                </div>
+                  </div>
+                )}
+                {collectionStatusMessage && (
+                  <p className="text-xs text-muted-foreground">
+                    {collectionStatusMessage}
+                  </p>
+                )}
+                {collectionAddress && (
+                  <div className="rounded-md border border-indigo-500/40 bg-indigo-500/5 p-3 text-sm">
+                    <p className="font-medium">Collection address</p>
+                    <p className="font-mono text-xs break-all">
+                      {collectionAddress}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Save this for future use.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-dashed border-primary/30 bg-muted/20 p-4 space-y-1">
+                <p className="text-sm font-medium">Creation fee</p>
+                <p className="text-xl font-semibold">
+                  {totalCreationCostSol.toFixed(4)} SOL
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Calculated as {amountValue || 0} NFTs ×{" "}
+                  {activeTreeSize.costPerCNFT.toFixed(8)} SOL per NFT.
+                </p>
               </div>
 
               <Button
                 type="submit"
                 className="w-full"
-                disabled={isSubmitting || !connected || !treeAddress}
+                disabled={
+                  isSubmitting || !connected || (!usePlatformTree && !treeAddress)
+                }
               >
                 {isSubmitting ? (
                   <>

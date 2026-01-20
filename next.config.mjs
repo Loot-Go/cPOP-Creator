@@ -9,6 +9,16 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  webpack: (config) => {
+    config.resolve = config.resolve || {};
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      "pino-pretty": false,
+      lokijs: false,
+      encoding: false,
+    };
+    return config;
+  },
 }
 
 export default nextConfig

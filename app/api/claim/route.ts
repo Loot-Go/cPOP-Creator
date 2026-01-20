@@ -3,19 +3,15 @@ import { getRpcUrl } from "@/lib/utils";
 import { NextRequest, NextResponse } from "next/server";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
+import { randomUUID } from "crypto";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import {
-  createNoopSigner,
   createSignerFromKeypair,
   signerIdentity,
-  signTransaction,
   some,
   none,
 } from "@metaplex-foundation/umi";
-import {
-  fromWeb3JsPublicKey,
-  toWeb3JsTransaction,
-} from "@metaplex-foundation/umi-web3js-adapters";
+import { fromWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { mplBubblegum, mintV2 } from "@metaplex-foundation/mpl-bubblegum";
 import { mplCore } from "@metaplex-foundation/mpl-core";
 
@@ -124,122 +120,83 @@ export const GET = async (request: NextRequest) => {
     );
   }
 
-  const umi = createUmi(getRpcUrl()).use(mplCore()).use(mplBubblegum());
-  const secret = bs58.decode(process.env.PAYER_KEYPAIR!);
-  const backendKeypair = umi.eddsa.createKeypairFromSecretKey(
-    new Uint8Array(secret)
-  );
-  const backendSigner = createSignerFromKeypair(umi, backendKeypair);
-  umi.use(signerIdentity(backendSigner, true));
-
-  const leafOwnerPk = new PublicKey(wallet_address);
-  const leafOwner = fromWeb3JsPublicKey(leafOwnerPk);
-  const payerSigner = createNoopSigner(leafOwner);
-  const treePk = new PublicKey(cpop.tokenId);
-  const collectionPk = new PublicKey(cpop.tokenAddress);
-  const metadataUri = cpop.tokenURI || cpop.website;
-
-  if (!metadataUri) {
-    return NextResponse.json(
-      {
-        error:
-          "CPOP metadata is missing a URI. Please contact the event organizer.",
-      },
-      { status: 400 }
-    );
-  }
-
-  const builder = mintV2(umi, {
-    payer: payerSigner,
-    treeCreatorOrDelegate: backendSigner,
-    collectionAuthority: backendSigner,
-    leafOwner,
-    leafDelegate: leafOwner,
-    merkleTree: fromWeb3JsPublicKey(treePk),
-    coreCollection: fromWeb3JsPublicKey(collectionPk),
-    metadata: {
-      name: cpop.eventName.slice(0, 32),
-      symbol: cpop.organizerName.slice(0, 10) || "CPOP",
-      uri: metadataUri,
-      sellerFeeBasisPoints: 0,
-      primarySaleHappened: false,
-      isMutable: true,
-      tokenStandard: none(),
-      creators: [
-        {
-          address: backendSigner.publicKey,
-          verified: true,
-          share: 100,
-        },
-      ],
-      collection: some(fromWeb3JsPublicKey(collectionPk)),
-    },
-  }).setFeePayer(payerSigner);
-
-  const latestBlockhash = await umi.rpc.getLatestBlockhash();
-  const transaction = await builder.setBlockhash(latestBlockhash).build(umi);
-  const partiallySigned = await signTransaction(transaction, [backendSigner]);
-  const versionedTx = toWeb3JsTransaction(partiallySigned);
-  const serialized = Buffer.from(
-    versionedTx.serialize()
-  ).toString("base64");
-
-  return NextResponse.json({
-    transaction: serialized,
-    blockhash: latestBlockhash.blockhash,
-    lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-  });
-};
-
-export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { wallet_address, id, signature } = body;
+    const umi = createUmi(getRpcUrl()).use(mplCore()).use(mplBubblegum());
+    const secret = bs58.decode(process.env.PAYER_KEYPAIR!);
+    const backendKeypair = umi.eddsa.createKeypairFromSecretKey(
+      new Uint8Array(secret)
+    );
+    const backendSigner = createSignerFromKeypair(umi, backendKeypair);
+    umi.use(signerIdentity(backendSigner, true));
 
-    if (!wallet_address || !id || !signature) {
+    const leafOwnerPk = new PublicKey(wallet_address);
+    const treePk = new PublicKey(cpop.tokenId);
+    const collectionPk = new PublicKey(cpop.tokenAddress);
+    const metadataUri = cpop.tokenURI || cpop.website;
+
+    if (!metadataUri) {
       return NextResponse.json(
-        { error: "Missing required claim fields" },
+        {
+          error:
+            "CPOP metadata is missing a URI. Please contact the event organizer.",
+        },
         { status: 400 }
       );
     }
 
-    const cpop = await prisma.cpop.findFirst({
-      where: { id },
-    });
-
-    if (!cpop) {
-      return NextResponse.json({ error: "CPOP not found" }, { status: 404 });
-    }
-
-    const existingClaim = await prisma.cpopClaim.findFirst({
-      where: {
-        cpopId: id,
-        walletAddress: wallet_address,
+    const builder = mintV2(umi, {
+      payer: backendSigner,
+      treeCreatorOrDelegate: backendSigner,
+      collectionAuthority: backendSigner,
+      leafOwner: fromWeb3JsPublicKey(leafOwnerPk),
+      leafDelegate: fromWeb3JsPublicKey(leafOwnerPk),
+      merkleTree: fromWeb3JsPublicKey(treePk),
+      coreCollection: fromWeb3JsPublicKey(collectionPk),
+      metadata: {
+        name: cpop.eventName.slice(0, 32),
+        symbol: cpop.organizerName.slice(0, 10) || "CPOP",
+        uri: metadataUri,
+        sellerFeeBasisPoints: 0,
+        creators: [
+          {
+            address: backendSigner.publicKey,
+            verified: true,
+            share: 100,
+          },
+        ],
+        collection: some(fromWeb3JsPublicKey(collectionPk)),
       },
-    });
+    }).setFeePayer(backendSigner);
 
-    if (existingClaim) {
-      return NextResponse.json(
-        { error: "CPOP already claimed by this wallet" },
-        { status: 409 }
-      );
-    }
+    const { signature } = await builder.sendAndConfirm(umi, {
+      confirm: { commitment: "finalized" },
+    });
 
     await prisma.cpopClaim.create({
       data: {
-        id: crypto.randomUUID(),
-        cpopId: id,
+        id: randomUUID(),
+        cpopId: cpop.id,
         walletAddress: wallet_address,
         tokenAddress: cpop.tokenAddress,
       },
     });
 
-    return NextResponse.json({ success: true, signature });
+    return NextResponse.json({
+      success: true,
+      signature: signature.toString(),
+    });
   } catch (error) {
-    console.error("Error recording claim:", error);
+    console.error("Error minting cNFT:", error);
     return NextResponse.json(
-      { error: "Failed to record claim" },
+      { error: "Failed to mint cPOP token. Please try again." },
       { status: 500 }
     );
   }
+};
+
+export async function POST() {
+  return NextResponse.json(
+    { error: "Method not supported" },
+    { status: 405 }
+  );
 }
