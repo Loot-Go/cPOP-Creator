@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { randomUUID } from "crypto";
 // import {
 //   createInitializeMetadataPointerInstruction,
 //   createInitializeMintInstruction,
@@ -310,6 +311,7 @@ export const createToken = async ({
   try {
     const cpop = await prisma.cpop.create({
       data: {
+        id: randomUUID(),
         eventName,
         organizerName,
         description,
