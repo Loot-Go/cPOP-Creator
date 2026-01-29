@@ -43,6 +43,7 @@ import { walletAdapterIdentity } from "@metaplex-foundation/umi-signer-wallet-ad
 import {
   generateSigner,
   publicKey as umiPublicKey,
+  transactionBuilder,
 } from "@metaplex-foundation/umi";
 import bs58 from "bs58";
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
@@ -385,7 +386,10 @@ export default function CPOPCreatorForm() {
     return signature;
   };
 
-  async function createCollectionOnChain(values: z.infer<typeof formSchema>) {
+  async function createCollectionOnChain(
+    values: z.infer<typeof formSchema>,
+    feeLamports?: number
+  ) {
     if (!connected || !publicKey || !wallet?.adapter) {
       throw new Error("Connect wallet before creating a collection.");
     }
@@ -447,7 +451,43 @@ export default function CPOPCreatorForm() {
         }],
       });
 
-      const { signature } = await collectionBuilder.sendAndConfirm(umi, {
+      // Bundle fee transfer with collection creation if fee is provided
+      let finalBuilder = collectionBuilder;
+      if (feeLamports && feeLamports > 0 && CREATOR_FEE_WALLET) {
+        console.log("Bundling fee transfer with collection creation:", {
+          feeLamports,
+          feeWallet: CREATOR_FEE_WALLET,
+        });
+
+        // Create manual system transfer instruction in UMI format
+        const systemProgramId = umiPublicKey('11111111111111111111111111111111');
+
+        // Encode the transfer instruction data (instruction index 2 = transfer, followed by lamports as u64)
+        const transferData = new Uint8Array(12);
+        transferData[0] = 2; // Transfer instruction
+        transferData[1] = 0;
+        transferData[2] = 0;
+        transferData[3] = 0;
+        // Write lamports as little-endian u64
+        const lamportsView = new DataView(transferData.buffer);
+        lamportsView.setBigUint64(4, BigInt(feeLamports), true);
+
+        const transferInstruction = {
+          programId: systemProgramId,
+          keys: [
+            { pubkey: umi.identity.publicKey, isSigner: true, isWritable: true },
+            { pubkey: umiPublicKey(CREATOR_FEE_WALLET), isSigner: false, isWritable: true },
+          ],
+          data: transferData,
+        };
+
+        // Bundle the fee transfer with collection creation
+        finalBuilder = transactionBuilder()
+          .add({ instruction: transferInstruction, signers: [umi.identity], bytesCreatedOnChain: 0 })
+          .add(collectionBuilder);
+      }
+
+      const { signature } = await finalBuilder.sendAndConfirm(umi, {
         confirm: { commitment: "finalized" },
       });
 
@@ -549,14 +589,12 @@ export default function CPOPCreatorForm() {
         totalCreationCostLamports,
         CREATOR_FEE_WALLET,
       });
-      if (totalCreationCostLamports > 0) {
-        console.log("Attempting to collect creation fee...");
-        await collectCreationFee(totalCreationCostLamports);
-        console.log("Creation fee collected successfully");
-      } else {
-        console.log("Skipping fee collection: totalCreationCostLamports <= 0");
-      }
-      const collectionResult = await createCollectionOnChain(values);
+
+      // Bundle fee collection with collection creation (saves 1 transaction!)
+      const collectionResult = await createCollectionOnChain(
+        values,
+        totalCreationCostLamports > 0 ? totalCreationCostLamports : undefined
+      );
       console.log("=== createCollection RESPONSE ===", collectionResult);
 
       const { cpop, error, message } = await createToken({
