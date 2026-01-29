@@ -44,6 +44,7 @@ import {
   generateSigner,
   publicKey as umiPublicKey,
 } from "@metaplex-foundation/umi";
+import bs58 from "bs58";
 import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
 import { createTreeV2, mplBubblegum } from "@metaplex-foundation/mpl-bubblegum";
 import {
@@ -309,7 +310,7 @@ export default function CPOPCreatorForm() {
 
       console.log("Tree creation transaction:", response);
       if ("signature" in response && response.signature) {
-        console.log("✅ Merkle Tree created:", response.signature.toString());
+        console.log("✅ Merkle Tree created:", bs58.encode(response.signature));
       }
 
       // brief delay to allow tree to finalize
@@ -347,7 +348,9 @@ export default function CPOPCreatorForm() {
   }
 
   const collectCreationFee = async (lamports: number) => {
+    console.log("=== collectCreationFee called ===", { lamports, CREATOR_FEE_WALLET });
     if (lamports <= 0) {
+      console.log("Fee collection skipped: lamports <= 0");
       return null;
     }
     if (!connected || !publicKey) {
@@ -360,6 +363,12 @@ export default function CPOPCreatorForm() {
       throw new Error("Wallet is not ready to send transactions.");
     }
 
+    console.log("Creating fee transfer transaction...", {
+      from: publicKey.toString(),
+      to: CREATOR_FEE_WALLET,
+      lamports,
+    });
+
     const transferTx = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: publicKey,
@@ -368,8 +377,11 @@ export default function CPOPCreatorForm() {
       })
     );
 
+    console.log("Sending fee transaction...");
     const signature = await sendTransaction(transferTx, connection);
+    console.log("Fee transaction sent, awaiting confirmation:", signature);
     await connection.confirmTransaction(signature, "confirmed");
+    console.log("Fee transaction confirmed:", signature);
     return signature;
   };
 
@@ -455,7 +467,7 @@ export default function CPOPCreatorForm() {
 
       return {
         address: newCollectionAddress,
-        signature: signature?.toString?.(),
+        signature: signature ? bs58.encode(signature) : undefined,
       };
     } catch (error) {
       console.error("Error creating collection:", error);
@@ -530,9 +542,19 @@ export default function CPOPCreatorForm() {
 
     try {
       setIsSubmitting(true);
-      console.log("=== CALLING createToken ===");
+      console.log("=== STARTING cPOP CREATION ===");
+      console.log("Fee calculation:", {
+        amountValue,
+        totalCreationCostSol,
+        totalCreationCostLamports,
+        CREATOR_FEE_WALLET,
+      });
       if (totalCreationCostLamports > 0) {
+        console.log("Attempting to collect creation fee...");
         await collectCreationFee(totalCreationCostLamports);
+        console.log("Creation fee collected successfully");
+      } else {
+        console.log("Skipping fee collection: totalCreationCostLamports <= 0");
       }
       const collectionResult = await createCollectionOnChain(values);
       console.log("=== createCollection RESPONSE ===", collectionResult);
@@ -1145,13 +1167,13 @@ export default function CPOPCreatorForm() {
               </div>
 
               <div className="rounded-lg border border-dashed border-primary/30 bg-muted/20 p-4 space-y-1">
-                <p className="text-sm font-medium">Creation fee</p>
+                <p className="text-sm font-medium">Total Mint Fee</p>
                 <p className="text-xl font-semibold">
                   {totalCreationCostSol.toFixed(4)} SOL
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Calculated as {amountValue || 0} NFTs ×{" "}
-                  {activeTreeSize.costPerCNFT.toFixed(8)} SOL per NFT.
+                  0.000095 SOL per NFT.
                 </p>
               </div>
 

@@ -8,7 +8,7 @@ datasource db {
 }
 
 model Cpop {
-  id              String      @id
+  id              String      @id @default(dbgenerated("gen_random_uuid()"))
   eventName       String
   organizerName   String
   description     String
@@ -24,7 +24,7 @@ model Cpop {
   tokenURI        String?
   tokenMetadata   Json?
   createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  updatedAt       DateTime    @default(now()) @updatedAt
   creator_address String?
   lat             Float?
   long            Float?
@@ -32,7 +32,7 @@ model Cpop {
 }
 
 model CpopClaim {
-  id            String   @id
+  id            String   @id @default(dbgenerated("gen_random_uuid()"))
   cpopId        String
   walletAddress String
   tokenAddress  String?
