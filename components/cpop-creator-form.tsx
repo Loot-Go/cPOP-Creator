@@ -163,7 +163,7 @@ export default function CPOPCreatorForm() {
     connection?.rpcEndpoint ||
     (connection as unknown as { _rpcEndpoint?: string })._rpcEndpoint ||
     process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT ||
-    clusterApiUrl("devnet");
+    clusterApiUrl("mainnet-beta");
   const initializeUmi = () => {
     if (!wallet?.adapter) {
       throw new Error("Wallet adapter not available");
@@ -645,7 +645,7 @@ export default function CPOPCreatorForm() {
 
       setCpop(cpop.id);
       const explorerCluster =
-        process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet";
+        process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "mainnet-beta";
       if (collectionResult?.signature) {
         setTransactionUrl(
           `https://explorer.solana.com/tx/${collectionResult.signature}?cluster=${explorerCluster}`

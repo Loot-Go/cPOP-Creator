@@ -54,7 +54,7 @@ This document explains how to install, configure, operate, and extend the projec
 - **Frontend** – `/components/cpop-creator-form.tsx` contains the entire creator workflow; `/app/claim/[id]` handles player claims.
 - **APIs** – `/api/claim` prepares or executes claim mints and logs attendance. Additional REST endpoints expose campaign metadata.
 - **Backend signer** – The server holds a single keypair (`PAYER_KEYPAIR`). It mints cNFT leaves, delegates authority on collections, and pays all claim gas.
-- **Compression** – Uses `@metaplex-foundation/mpl-bubblegum` (`mintV2`) and `@lightprotocol` helper tools for tree creation.
+- **Compression** – Uses `@metaplex-foundation/mpl-bubblegum` for both tree creation (`createTreeV2`) and minting (`mintV2`).
 - **Storage** – Metadata and art are pinned using `@metaplex-foundation/umi-uploader-irys`.
 
 ---
@@ -65,7 +65,7 @@ This document explains how to install, configure, operate, and extend the projec
 - **pnpm** v8+ or npm / yarn (pnpm lockfile provided)
 - **PostgreSQL** (Prisma schema expects Postgres)
 - **Solana CLI** (optional but useful for troubleshooting)
-- **Access to a Solana RPC** (public devnet RPC or a custom URL)
+- **Access to a Solana RPC** (public RPC or a custom URL)
 - **Backend signer keypair** exported as a Base58 string
 
 ---

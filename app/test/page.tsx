@@ -375,12 +375,12 @@ export default function TestPage() {
               className="w-full justify-start"
               onClick={() =>
                 window.open(
-                  "https://explorer.solana.com/?cluster=devnet",
+                  "https://explorer.solana.com/?cluster=mainnet-beta",
                   "_blank"
                 )
               }
             >
-              Open Solana Explorer (Devnet)
+              Open Solana Explorer
             </Button>
           </CardContent>
         </Card>

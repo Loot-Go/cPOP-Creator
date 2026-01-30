@@ -72,7 +72,7 @@ const ManageCpop = async ({ cpops }: ManageCpopProps) => {
                       <a
                         target="_blank"
                         rel="noopener noreferrer"
-                        href={`https://explorer.solana.com/account/${cpop.tokenAddress}?cluster=devnet`}
+                        href={`https://explorer.solana.com/account/${cpop.tokenAddress}?cluster=mainnet-beta`}
                       >
                         View Token
                       </a>

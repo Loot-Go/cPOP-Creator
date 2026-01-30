@@ -260,7 +260,7 @@ export default function ClaimPageClient({ cpopId }: ClaimPageClientProps) {
             {claimTxId && (
               <a
                 href={`https://explorer.solana.com/tx/${claimTxId}?cluster=${
-                  process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "devnet"
+                  process.env.NEXT_PUBLIC_SOLANA_CLUSTER || "mainnet-beta"
                 }`}
                 target="_blank"
                 rel="noopener noreferrer"
