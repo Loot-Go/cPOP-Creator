@@ -22,16 +22,11 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   // You can also provide a custom RPC endpoint
   const endpoint = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SOLANA_RPC_ENDPOINT || clusterApiUrl(network);
-    console.log("Using Solana endpoint:", url);
     return url;
   }, [network]);
 
   const wallets = useMemo(() => {
     const adapters = [new PhantomWalletAdapter()];
-    console.log(
-      "Initialized wallet adapters:",
-      adapters.map((w) => w.name)
-    );
     return adapters;
   }, []);
 
@@ -41,7 +36,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         wallets={wallets}
         autoConnect={true}
         onError={(error) => {
-          console.error("Wallet provider error:", error);
+          // Wallet error
         }}
         localStorageKey="walletAdapter"
       >

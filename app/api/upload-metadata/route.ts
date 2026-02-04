@@ -40,14 +40,16 @@ export async function POST(request: NextRequest) {
     const signer = createSignerFromKeypair(umi, umiKeypair);
 
     // Configure UMI with signer and Irys uploader
-    umi.use(signerIdentity(signer)).use(irysUploader());
+    // Try alternative Irys nodes if uploader.irys.xyz is down
+    umi.use(signerIdentity(signer)).use(irysUploader({
+      address: "https://node1.irys.xyz"
+    }));
 
     // Upload metadata
     const uri = await umi.uploader.uploadJson(metadata);
 
     return NextResponse.json({ uri });
   } catch (error) {
-    console.error("Error uploading metadata:", error);
     return NextResponse.json(
       { error: "Failed to upload metadata", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }

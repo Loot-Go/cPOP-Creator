@@ -173,14 +173,9 @@ export default function CPOPCreatorForm() {
       .use(mplBubblegum());
   };
 
-  // Add effect to log wallet state changes
+  // Wallet state effect
   useEffect(() => {
-    console.log("Wallet state changed:", {
-      connected,
-      connecting,
-      publicKey: publicKey?.toString(),
-      wallet: wallet?.adapter.name,
-    });
+    // Wallet state tracking
   }, [connected, connecting, publicKey, wallet]);
 
   const form = useForm<z.infer<typeof formSchema>>({
@@ -222,7 +217,7 @@ export default function CPOPCreatorForm() {
   useEffect(() => {
     const subscription = form.watch(() => {
       if (Object.keys(form.formState.errors).length > 0) {
-        console.log("Form validation errors:", form.formState.errors);
+        // Form validation errors exist
       }
     });
     return () => subscription.unsubscribe();
@@ -268,7 +263,6 @@ export default function CPOPCreatorForm() {
         description: "We will use the provided tree for compression.",
       });
     } catch (error) {
-      console.error("Invalid tree address:", error);
       toast({
         title: "Invalid tree address",
         description: "Please provide a valid Solana address.",
@@ -308,11 +302,6 @@ export default function CPOPCreatorForm() {
         confirm: { strategy: { type: "polling" }, commitment: "finalized" },
       });
 
-      console.log("Tree creation transaction:", response);
-      if ("signature" in response && response.signature) {
-        console.log("✅ Merkle Tree created:", bs58.encode(response.signature));
-      }
-
       // brief delay to allow tree to finalize
       await new Promise((resolve) => setTimeout(resolve, 1500));
 
@@ -332,7 +321,6 @@ export default function CPOPCreatorForm() {
         description: "Copy and store this address safely.",
       });
     } catch (error) {
-      console.error("Error creating tree:", error);
       setTreeStatusMessage("Failed to create tree. Please try again.");
       toast({
         title: "Unable to create tree",
@@ -348,9 +336,7 @@ export default function CPOPCreatorForm() {
   }
 
   const collectCreationFee = async (lamports: number) => {
-    console.log("=== collectCreationFee called ===", { lamports, CREATOR_FEE_WALLET });
     if (lamports <= 0) {
-      console.log("Fee collection skipped: lamports <= 0");
       return null;
     }
     if (!connected || !publicKey) {
@@ -363,12 +349,6 @@ export default function CPOPCreatorForm() {
       throw new Error("Wallet is not ready to send transactions.");
     }
 
-    console.log("Creating fee transfer transaction...", {
-      from: publicKey.toString(),
-      to: CREATOR_FEE_WALLET,
-      lamports,
-    });
-
     const transferTx = new Transaction().add(
       SystemProgram.transfer({
         fromPubkey: publicKey,
@@ -377,11 +357,8 @@ export default function CPOPCreatorForm() {
       })
     );
 
-    console.log("Sending fee transaction...");
     const signature = await sendTransaction(transferTx, connection);
-    console.log("Fee transaction sent, awaiting confirmation:", signature);
     await connection.confirmTransaction(signature, "confirmed");
-    console.log("Fee transaction confirmed:", signature);
     return signature;
   };
 
@@ -429,9 +406,7 @@ export default function CPOPCreatorForm() {
 
         const { uri } = await uploadResponse.json();
         metadataUri = uri;
-        console.log("Metadata uploaded successfully:", metadataUri);
       } catch (metadataError) {
-        console.error("Error uploading collection metadata:", metadataError);
       }
 
       const collectionPlugins = [
@@ -471,11 +446,6 @@ export default function CPOPCreatorForm() {
       // Bundle fee transfer with collection creation if fee is provided
       let finalBuilder = collectionBuilder;
       if (feeLamports && feeLamports > 0 && CREATOR_FEE_WALLET) {
-        console.log("Bundling fee transfer with collection creation:", {
-          feeLamports,
-          feeWallet: CREATOR_FEE_WALLET,
-        });
-
         // Create manual system transfer instruction in UMI format
         const systemProgramId = umiPublicKey('11111111111111111111111111111111');
 
@@ -529,7 +499,6 @@ export default function CPOPCreatorForm() {
         signature: signature ? bs58.encode(signature) : undefined,
       };
     } catch (error) {
-      console.error("Error creating collection:", error);
       setCollectionStatusMessage(
         "Failed to create collection. Please try again."
       );
@@ -538,15 +507,6 @@ export default function CPOPCreatorForm() {
   }
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log("=== FORM SUBMITTED SUCCESSFULLY ===");
-    console.log("Form values:", values);
-    console.log("Wallet state:", {
-      connected,
-      connecting,
-      publicKey: publicKey?.toString(),
-      wallet: wallet?.adapter.name,
-    });
-
     // Wait for wallet to finish connecting if it's in the process
     if (connecting) {
       toast({
@@ -601,20 +561,12 @@ export default function CPOPCreatorForm() {
 
     try {
       setIsSubmitting(true);
-      console.log("=== STARTING cPOP CREATION ===");
-      console.log("Fee calculation:", {
-        amountValue,
-        totalCreationCostSol,
-        totalCreationCostLamports,
-        CREATOR_FEE_WALLET,
-      });
 
       // Bundle fee collection with collection creation (saves 1 transaction!)
       const collectionResult = await createCollectionOnChain(
         values,
         totalCreationCostLamports > 0 ? totalCreationCostLamports : undefined
       );
-      console.log("=== createCollection RESPONSE ===", collectionResult);
 
       const { cpop, error, message } = await createToken({
         name: values.eventName,
@@ -643,14 +595,7 @@ export default function CPOPCreatorForm() {
         collectionSignature: collectionResult?.signature,
       });
 
-      console.log("=== createToken RESPONSE ===", {
-        cpop,
-        error,
-        message,
-      });
-
       if (error || !cpop) {
-        console.log("createToken returned error:", message);
         toast({
           title: "Error",
           description:
@@ -692,7 +637,6 @@ export default function CPOPCreatorForm() {
 
       form.reset();
     } catch (error) {
-      console.error("Error creating cPOP:", error);
       toast({
         title: "Error",
         description:
@@ -742,7 +686,6 @@ export default function CPOPCreatorForm() {
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(onSubmit, (errors) => {
-                console.log("Form validation failed:", errors);
                 // Show toast for validation errors
                 const errorMessages = Object.entries(errors)
                   .map(([field, error]) => `${field}: ${error?.message}`)
@@ -775,7 +718,6 @@ export default function CPOPCreatorForm() {
                         <UploadButton
                           endpoint="imageUploader"
                           onClientUploadComplete={(res) => {
-                            console.log("Files: ", res);
                             form.setValue("imageUrl", res[0].ufsUrl);
                           }}
                           onUploadError={(error: Error) => {
