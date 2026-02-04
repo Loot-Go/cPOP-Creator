@@ -46,7 +46,6 @@ import {
   transactionBuilder,
 } from "@metaplex-foundation/umi";
 import bs58 from "bs58";
-import { irysUploader } from "@metaplex-foundation/umi-uploader-irys";
 import { createTreeV2, mplBubblegum } from "@metaplex-foundation/mpl-bubblegum";
 import {
   createCollection as createUmiCollection,
@@ -171,8 +170,7 @@ export default function CPOPCreatorForm() {
     return createUmi(resolveRpcEndpoint())
       .use(walletAdapterIdentity(wallet.adapter))
       .use(mplCore())
-      .use(mplBubblegum())
-      .use(irysUploader());
+      .use(mplBubblegum());
   };
 
   // Add effect to log wallet state changes
@@ -306,7 +304,8 @@ export default function CPOPCreatorForm() {
       });
 
       const response = await treeBuilder.sendAndConfirm(umi, {
-        confirm: { commitment: "finalized" },
+        send: { skipPreflight: false },
+        confirm: { strategy: { type: "polling" }, commitment: "finalized" },
       });
 
       console.log("Tree creation transaction:", response);
@@ -407,12 +406,29 @@ export default function CPOPCreatorForm() {
       let metadataUri = fallbackMetadataUri;
 
       try {
-        metadataUri = await umi.uploader.uploadJson({
-          name: collectionName,
-          description: values.description,
-          image: values.imageUrl,
-          external_url: values.website,
+        // Upload metadata via API route to avoid CORS issues
+        const uploadResponse = await fetch("/api/upload-metadata", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            metadata: {
+              name: collectionName,
+              description: values.description,
+              image: values.imageUrl,
+              external_url: values.website,
+            },
+          }),
         });
+
+        if (!uploadResponse.ok) {
+          const error = await uploadResponse.json();
+          throw new Error(error.error || "Failed to upload metadata");
+        }
+
+        const { uri } = await uploadResponse.json();
+        metadataUri = uri;
       } catch (metadataError) {
         console.error("Error uploading collection metadata:", metadataError);
       }
@@ -487,8 +503,10 @@ export default function CPOPCreatorForm() {
           .add(collectionBuilder);
       }
 
+      // Send transaction without WebSocket subscription (use polling instead)
       const { signature } = await finalBuilder.sendAndConfirm(umi, {
-        confirm: { commitment: "finalized" },
+        send: { skipPreflight: false },
+        confirm: { strategy: { type: "polling" }, commitment: "finalized" },
       });
 
       await new Promise((resolve) => setTimeout(resolve, 1500));
