@@ -46,6 +46,7 @@ import {
   transactionBuilder,
 } from "@metaplex-foundation/umi";
 import bs58 from "bs58";
+import { irysUploader } from "@metaplex-foundation/umi-uploader-irys/web";
 import { createTreeV2, mplBubblegum } from "@metaplex-foundation/mpl-bubblegum";
 import {
   createCollection as createUmiCollection,
@@ -170,7 +171,8 @@ export default function CPOPCreatorForm() {
     return createUmi(resolveRpcEndpoint())
       .use(walletAdapterIdentity(wallet.adapter))
       .use(mplCore())
-      .use(mplBubblegum());
+      .use(mplBubblegum())
+      .use(irysUploader());
   };
 
   // Add effect to log wallet state changes
@@ -406,29 +408,12 @@ export default function CPOPCreatorForm() {
       let metadataUri = fallbackMetadataUri;
 
       try {
-        // Upload metadata via API route to avoid CORS issues
-        const uploadResponse = await fetch("/api/upload-metadata", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            metadata: {
-              name: collectionName,
-              description: values.description,
-              image: values.imageUrl,
-              external_url: values.website,
-            },
-          }),
+        metadataUri = await umi.uploader.uploadJson({
+          name: collectionName,
+          description: values.description,
+          image: values.imageUrl,
+          external_url: values.website,
         });
-
-        if (!uploadResponse.ok) {
-          const error = await uploadResponse.json();
-          throw new Error(error.error || "Failed to upload metadata");
-        }
-
-        const { uri } = await uploadResponse.json();
-        metadataUri = uri;
       } catch (metadataError) {
         console.error("Error uploading collection metadata:", metadataError);
       }
