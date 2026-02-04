@@ -45,8 +45,23 @@ export async function POST(request: NextRequest) {
       address: "https://node1.irys.xyz"
     }));
 
-    // Upload metadata
-    const uri = await umi.uploader.uploadJson(metadata);
+    // Upload metadata with retry logic for expired blockhash
+    let uri;
+    let retries = 2;
+
+    while (retries >= 0) {
+      try {
+        uri = await umi.uploader.uploadJson(metadata);
+        break;
+      } catch (uploadError: any) {
+        if (uploadError?.message?.includes('expired') && retries > 0) {
+          retries--;
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+        throw uploadError;
+      }
+    }
 
     return NextResponse.json({ uri });
   } catch (error) {

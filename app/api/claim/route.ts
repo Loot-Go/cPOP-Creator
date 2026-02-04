@@ -183,7 +183,7 @@ export const GET = async (request: NextRequest) => {
 
     return NextResponse.json({
       success: true,
-      signature: signature.toString(),
+      signature: bs58.encode(signature),
     });
   } catch (error) {
     console.error("Error minting cNFT:", error);

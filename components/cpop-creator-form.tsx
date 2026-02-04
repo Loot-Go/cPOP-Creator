@@ -297,9 +297,9 @@ export default function CPOPCreatorForm() {
         canopyDepth: selectedTreeSize.canopyDepth,
       });
 
+   
       const response = await treeBuilder.sendAndConfirm(umi, {
-        send: { skipPreflight: false },
-        confirm: { strategy: { type: "polling" }, commitment: "finalized" },
+        confirm: { commitment: "finalized" },
       });
 
       // brief delay to allow tree to finalize
@@ -474,10 +474,8 @@ export default function CPOPCreatorForm() {
           .add(collectionBuilder);
       }
 
-      // Send transaction without WebSocket subscription (use polling instead)
       const { signature } = await finalBuilder.sendAndConfirm(umi, {
-        send: { skipPreflight: false },
-        confirm: { strategy: { type: "polling" }, commitment: "finalized" },
+        confirm: { commitment: "finalized" },
       });
 
       await new Promise((resolve) => setTimeout(resolve, 1500));
